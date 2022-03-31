@@ -44,11 +44,11 @@ int main(void)
     printf("Listening for incoming messages...\n\n");
 
     // Receive client's message:
-    //MSG_WAITALL (since Linux 2.2)
-    //This flag requests that the operation block until the full request is satisfied. 
-    //However, the call may still return less data than requested if a signal is caught, 
-    //an error or disconnect occurs, or the next data to be received is of a different 
-    //type than that returned.
+    // MSG_WAITALL (since Linux 2.2)
+    // This flag requests that the operation block until the full request is satisfied.
+    // However, the call may still return less data than requested if a signal is caught,
+    // an error or disconnect occurs, or the next data to be received is of a different
+    // type than that returned.
     if (recvfrom(socket_desc, client_message, sizeof(client_message), 0,
                  (struct sockaddr *)&client_addr, &client_struct_length) < 0)
     {
@@ -57,19 +57,21 @@ int main(void)
     }
     printf("Received message from IP: %s and port: %i\n",
            inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
-
+    
     printf("Msg from client: %s\n", client_message);
 
     // Respond to client:
-    strcpy(server_message, client_message);
-
-    if (sendto(socket_desc, server_message, strlen(server_message), 0,
-               (struct sockaddr *)&client_addr, client_struct_length) < 0)
+    if (strcmp(client_message, "CommTest!") == 0)
     {
-        printf("Can't send\n");
-        return -1;
+        strcpy(server_message, "Comm#OK!");
+        if (sendto(socket_desc, server_message, strlen(server_message), 0,
+                   (struct sockaddr *)&client_addr, client_struct_length) < 0)
+        {
+            printf("Can't send\n");
+            return -1;
+        }
     }
-
+    
     // Close the socket:
     close(socket_desc);
 

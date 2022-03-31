@@ -29,9 +29,11 @@ int main(void)
     server_addr.sin_port = htons(2000);
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-    // Get input from the user:
-    printf("Enter message: ");
-    gets(client_message);
+    //Echo:
+    //printf("Enter message: ");
+    //gets(client_message);
+
+    strcpy(client_message, "CommTest!");
 
     // Send the message to server:
     if (sendto(socket_desc, client_message, strlen(client_message), 0,
