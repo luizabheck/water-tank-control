@@ -3,12 +3,18 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
+
+#define BUFFER_SIZE 2000
+
+int sendMsgToClient(int socket_desc, char *server_message, struct sockaddr *client_addr);
+int receiveMsgFromClient(int socket_desc, char *client_message, struct sockaddr *client_addr);
+char messageHandler(char *client_message, char *server_message);
+
 int main(void)
 {
     int socket_desc;
     struct sockaddr_in server_addr, client_addr;
-    char server_message[2000], client_message[2000];
-    int client_struct_length = sizeof(client_addr);
+    char server_message[BUFFER_SIZE], client_message[BUFFER_SIZE];
 
     // Clean buffers:
     // Seta todos os bytes para 0
@@ -30,7 +36,7 @@ int main(void)
 
     // Set port and IP:
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(2000);
+    server_addr.sin_port = htons(BUFFER_SIZE);
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     // Bind to the set port and IP:
@@ -43,37 +49,111 @@ int main(void)
 
     printf("Listening for incoming messages...\n\n");
 
+    receiveMsgFromClient(socket_desc, client_message, (struct sockaddr *)&client_addr);
+
+    messageHandler(client_message, server_message);
+
+    sendMsgToClient(socket_desc, server_message, (struct sockaddr *)&client_addr);
+
+    // Close the socket:
+    close(socket_desc);
+
+    return 0;
+}
+
+void messageHandler(char *client_message, char *server_message)
+{
+    char *cmd, value_str[5];
+    int value;
+    char server_message[BUFFER_SIZE];
+
+    if (strstr(client_message, "#") == NULL) // Checks if has not received any argument
+    {
+        cmd = strtok(client_message, "!"); // Breaks the string to eliminate the '!'
+    }
+    else // If has arguments
+    {
+        cmd = strtok(client_message, "#");    // Gets the command related part of message
+        strcpy(value_str, strtok(NULL, "!")); // Gets the value part of message
+        value = atoi(value_str);              // Converts the received value (string) to integer
+    }
+
+    // Respond to client:
+    if (strcmp(client_message, "CommTest") == 0)
+    {
+        strcpy(server_message, "Comm#OK!");
+    }
+    else if (strcmp(client_message, "Start") == 0)
+    {
+        strcpy(server_message, "Start#OK!");
+        // TODO (Re-)Iniciar o simulador da Planta
+    }
+    else if (strcmp(client_message, "GetLevel") == 0)
+    {
+        // TODO Retornar nível atual
+        strcpy(server_message, "Level#");
+        // strcat(current_level,"!");
+        // strcpy(server_message,strcat(server_message,current_level));
+    }
+    else if (strcmp(client_message, "OpenValve") == 0)
+    {
+        strcpy(server_message, "Open#");
+        strcat(value_str, "!");
+        strcpy(server_message, strcat(server_message, value_str));
+    }
+    else if (strcmp(client_message, "CloseValve") == 0)
+    {
+        strcpy(server_message, "Close#");
+        strcat(value_str, "!");
+        strcpy(server_message, strcat(server_message, value_str));
+    }
+    else if (strcmp(client_message, "SetMax") == 0)
+    {
+        strcpy(server_message, "Max#");
+        strcat(value_str, "!");
+        strcpy(server_message, strcat(server_message, value_str));
+    }
+    else
+    {
+        strcpy(server_message, "Err!");
+    }
+}
+
+int receiveMsgFromClient(int socket_desc, char *client_message, struct sockaddr *client_addr)
+{
+    // sizeof(*server_addr) quero o tamanho do que o ponteiro esta apontando
+    int client_struct_length = sizeof(*client_addr);
+
     // Receive client's message:
     // MSG_WAITALL (since Linux 2.2)
     // This flag requests that the operation block until the full request is satisfied.
     // However, the call may still return less data than requested if a signal is caught,
     // an error or disconnect occurs, or the next data to be received is of a different
     // type than that returned.
-    if (recvfrom(socket_desc, client_message, sizeof(client_message), 0,
-                 (struct sockaddr *)&client_addr, &client_struct_length) < 0)
+
+    if (recvfrom(socket_desc, client_message, BUFFER_SIZE, 0,
+                 client_addr, &client_struct_length) < 0)
     {
         printf("Couldn't receive\n");
         return -1;
     }
-    printf("Received message from IP: %s and port: %i\n",
-           inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
-    
+
+    // printf("Received message from IP: %s and port: %i\n",
+    //        inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+
     printf("Msg from client: %s\n", client_message);
+    return 0;
+}
 
-    // Respond to client:
-    if (strcmp(client_message, "CommTest!") == 0)
+int sendMsgToClient(int socket_desc, char *server_message, struct sockaddr *client_addr)
+{
+    int client_struct_length = sizeof(*client_addr);
+
+    if (sendto(socket_desc, server_message, strlen(server_message), 0,
+               client_addr, client_struct_length) < 0)
     {
-        strcpy(server_message, "Comm#OK!");
-        if (sendto(socket_desc, server_message, strlen(server_message), 0,
-                   (struct sockaddr *)&client_addr, client_struct_length) < 0)
-        {
-            printf("Can't send\n");
-            return -1;
-        }
+        printf("Unable to send message\n");
+        return -1;
     }
-    
-    // Close the socket:
-    close(socket_desc);
-
     return 0;
 }
