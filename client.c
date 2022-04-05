@@ -6,7 +6,7 @@
 int receiveMsgFromServer(int socket_desc, char *server_message, struct sockaddr *server_addr);
 int sendMsgToServer(int socket_desc, char *client_message, struct sockaddr *server_addr);
 
-//TODO usar o tamanho total, multiplicar pelos bytes
+// TODO usar o tamanho total, multiplicar pelos bytes
 #define BUFFER_SIZE 2000
 
 int main(void)
@@ -40,10 +40,10 @@ int main(void)
     gets(client_message);
 
     // Send the message to server:
-    sendMsgToServer(socket_desc, client_message,(struct sockaddr *)&server_addr);
-   
+    sendMsgToServer(socket_desc, client_message, (struct sockaddr *)&server_addr);
+
     // Wait for server response:
-    receiveMsgFromServer(socket_desc, server_message,(struct sockaddr *)&server_addr);
+    receiveMsgFromServer(socket_desc, server_message, (struct sockaddr *)&server_addr);
 
     // Close the socket:
     close(socket_desc);
@@ -66,7 +66,7 @@ int sendMsgToServer(int socket_desc, char *client_message, struct sockaddr *serv
 
 int receiveMsgFromServer(int socket_desc, char *server_message, struct sockaddr *server_addr)
 {
-    //sizeof(*server_addr) quero o tamanho do que o ponteiro esta apontando
+    // sizeof(*server_addr) quero o tamanho do que o ponteiro esta apontando
     int server_struct_length = sizeof(*server_addr);
 
     // Receive the server's response:
@@ -79,5 +79,3 @@ int receiveMsgFromServer(int socket_desc, char *server_message, struct sockaddr 
     printf("Server's response: %s\n", server_message);
     return 0;
 }
-
-

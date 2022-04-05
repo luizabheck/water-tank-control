@@ -2,19 +2,48 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
 
 #define BUFFER_SIZE 2000
 
 int sendMsgToClient(int socket_desc, char *server_message, struct sockaddr *client_addr);
 int receiveMsgFromClient(int socket_desc, char *client_message, struct sockaddr *client_addr);
-char messageHandler(char *client_message, char *server_message);
+void messageHandler(char *client_message, char *server_message);
+void *serverThreadFunction(void *arg);
+void *plantThreadFunction(void *arg);
+
+float water_level = 0.4;
 
 int main(void)
 {
-    int socket_desc;
+    pthread_t server_thread, plant_thread;
+
+    pthread_create(&server_thread, NULL, serverThreadFunction, NULL);
+    pthread_create(&plant_thread, NULL, plantThreadFunction, NULL);
+
+    pthread_join(server_thread, NULL);
+    pthread_join(plant_thread, NULL);
+
+    return 0;
+}
+
+void *plantThreadFunction(void *arg)
+{
+    while (1)
+    {
+        printf("alguma coisa\n");
+        // do something
+        usleep(1000000);
+    }
+}
+
+void *serverThreadFunction(void *arg)
+{
     struct sockaddr_in server_addr, client_addr;
     char server_message[BUFFER_SIZE], client_message[BUFFER_SIZE];
+    int socket_desc;
 
     // Clean buffers:
     // Seta todos os bytes para 0
@@ -30,7 +59,7 @@ int main(void)
     if (socket_desc < 0)
     {
         printf("Error while creating socket\n");
-        return -1;
+        return (void *)(-1);
     }
     printf("Socket created successfully\n");
 
@@ -43,29 +72,29 @@ int main(void)
     if (bind(socket_desc, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
         printf("Couldn't bind to the port\n");
-        return -1;
+        return (void *)(-1);
     }
     printf("Done with binding\n");
 
     printf("Listening for incoming messages...\n\n");
 
-    receiveMsgFromClient(socket_desc, client_message, (struct sockaddr *)&client_addr);
+    while (1)
+    {
+        receiveMsgFromClient(socket_desc, client_message, (struct sockaddr *)&client_addr);
 
-    messageHandler(client_message, server_message);
+        messageHandler(client_message, server_message);
 
-    sendMsgToClient(socket_desc, server_message, (struct sockaddr *)&client_addr);
+        sendMsgToClient(socket_desc, server_message, (struct sockaddr *)&client_addr);
+    }
 
     // Close the socket:
     close(socket_desc);
-
-    return 0;
 }
 
 void messageHandler(char *client_message, char *server_message)
 {
     char *cmd, value_str[5];
     int value;
-    char server_message[BUFFER_SIZE];
 
     if (strstr(client_message, "#") == NULL) // Checks if has not received any argument
     {
