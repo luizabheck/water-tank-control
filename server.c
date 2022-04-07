@@ -35,15 +35,15 @@ typedef struct
 //Graph////////////////////////////
 typedef struct {
   SDL_Surface *canvas;
-  int Height; // canvas height
-  int Width;  // canvas width
+  int height; // canvas height
+  int width;  // canvas width
   int Xoffset; // X off set, in canvas pixels
   int Yoffset; // Y off set, in canvas pixels
   int Xext; // X extra width
   int Yext; // Y extra height
-  double Xmax;
-  double Ymax;
-  double Xstep; // half a distance between X pixels in 'Xmax' scale
+  double x_max;
+  double y_max;
+  double Xstep; // half a distance between X pixels in 'x_max' scale
 
   pixel_t *zpixel;
 
@@ -52,12 +52,12 @@ typedef struct {
 typedef struct {
   canvas_t *canvas;
   double   Tcurrent;
-  double   Lcurrent;
-  pixel_t Lcolor;
-  double   INcurrent;
-  pixel_t INcolor;
-  double   OUTcurrent;
-  pixel_t OUTcolor;
+  double   current_level;
+  pixel_t level_color;
+  double   in_current;
+  pixel_t in_color;
+  double   out_current;
+  pixel_t out_color;
 
 } dataholder_t;
 //////////////////////////////////////
@@ -73,15 +73,15 @@ void *serverThreadFunction(void *arg);
 void *plantThreadFunction(void *arg);
 float clamp(float value, float max, float min);
 double outAngle(double tempo);
-dataholder_t *datainit(int Width, int Height, double Xmax, double Ymax, double Lcurrent, double INcurrent, double OUTcurrent);
-void c_hlinedraw(canvas_t *canvas, int xstep, int y, pixel_t color);
+void c_hlinedraw(canvas_t *canvas, int x_step, int y, pixel_t color);
 void c_pixeldraw(canvas_t *canvas, int x, int y, pixel_t color);
-void c_vlinedraw(canvas_t *canvas, int x, int ystep, pixel_t color);
+void c_vlinedraw(canvas_t *canvas, int x, int y_step, pixel_t color);
 void c_linedraw(canvas_t *canvas, double x0, double y0, double x1, double y1, pixel_t color);
-canvas_t *c_open(int Width, int Height, double Xmax, double Ymax);
-void setdatacolors(dataholder_t *data, pixel_t Lcolor, pixel_t INcolor, pixel_t OUTcolor);
+canvas_t *c_open(int width, int height, double x_max, double y_max);
+dataholder_t *d_init(int width, int height, double x_max, double y_max, double current_level, double in_current, double out_current);
+void d_setColors(dataholder_t *data, pixel_t level_color, pixel_t in_color, pixel_t out_color);
+void d_draw(dataholder_t *data, double time, double level, double in_angle, double out_angle);
 void quitevent();
-
 
 plant_t plant = {
     .max_flux = MAX_FLUX_INITIAL,
@@ -109,10 +109,10 @@ int main( int argc, const char* argv[] ) {
   dataholder_t *data;
   double t=0;
 
-  data = datainit(640,480,55,110,45,0,0);
+  data = d_init(640,480,55,110,45,0,0);
 
   for (t=0;t<50;t+=0.1) {
-    datadraw(data,t,(double)(50+20*cos(t/5)),(double)(70+10*sin(t/10)),(double)(20+5*cos(t/2.5)));
+    d_draw(data,t,(double)(50+20*cos(t/5)),(double)(70+10*sin(t/10)),(double)(20+5*cos(t/2.5)));
   }
 
   while(1) {
@@ -127,23 +127,23 @@ inline void c_pixeldraw(canvas_t *canvas, int x, int y, pixel_t color)
   *( ((pixel_t*)canvas->canvas->pixels) + ((-y+canvas->Yoffset) * canvas->canvas->w + x+ canvas->Xoffset)) = color;
 }
 
-inline void c_hlinedraw(canvas_t *canvas, int xstep, int y, pixel_t color)
+inline void c_hlinedraw(canvas_t *canvas, int x_step, int y, pixel_t color)
 {
   int offset =  (-y+canvas->Yoffset) * canvas->canvas->w;
   int x;
 
-  for (x = 0; x< canvas->Width+canvas->Xoffset ; x+=xstep) {
+  for (x = 0; x< canvas->width+canvas->Xoffset ; x+=x_step) {
         *( ((pixel_t*)canvas->canvas->pixels) + (offset + x)) = color;
   }
 }
 
-inline void c_vlinedraw(canvas_t *canvas, int x, int ystep, pixel_t color)
+inline void c_vlinedraw(canvas_t *canvas, int x, int y_step, pixel_t color)
 {
   int offset = x+canvas->Xoffset;
   int y;
-  int Ystep = ystep*canvas->canvas->w;
+  int Ystep = y_step*canvas->canvas->w;
 
-  for (y = 0; y< canvas->Height+canvas->Yext ; y+=ystep) {
+  for (y = 0; y< canvas->height+canvas->Yext ; y+=y_step) {
     *( ((pixel_t*)canvas->canvas->pixels) + (offset + y*canvas->canvas->w)) = color;
   }
 }
@@ -152,77 +152,77 @@ inline void c_linedraw(canvas_t *canvas, double x0, double y0, double x1, double
   double x;
 
   for (x=x0; x<=x1; x+=canvas->Xstep) {
-    c_pixeldraw(canvas, (int)(x*canvas->Width/canvas->Xmax+0.5), (int)((double)canvas->Height/canvas->Ymax*(y1*(x1-x)+y1*(x-x0))/(x1-x0)+0.5),color);
+    c_pixeldraw(canvas, (int)(x*canvas->width/canvas->x_max+0.5), (int)((double)canvas->height/canvas->y_max*(y1*(x1-x)+y1*(x-x0))/(x1-x0)+0.5),color);
   }
 }
 
-canvas_t *c_open(int Width, int Height, double Xmax, double Ymax)
+canvas_t *c_open(int width, int height, double x_max, double y_max)
 {
   int x,y;
   canvas_t *canvas;
   canvas = malloc(sizeof(canvas_t));
 
   canvas->Xoffset = 10;
-  canvas->Yoffset = Height;
+  canvas->Yoffset = height;
 
   canvas->Xext = 10;
   canvas->Yext = 10;
 
-  canvas->Height = Height;
-  canvas->Width  = Width; 
-  canvas->Xmax   = Xmax;
-  canvas->Ymax   = Ymax;
+  canvas->height = height;
+  canvas->width  = width; 
+  canvas->x_max   = x_max;
+  canvas->y_max   = y_max;
 
-  canvas->Xstep  = Xmax/(double)Width/2;
+  canvas->Xstep  = x_max/(double)width/2;
 
-  //  canvas->zpixel = (pixel_t *)canvas->canvas->pixels +(Height-1)*canvas->canvas->w;
+  //canvas->zpixel = (pixel_t *)canvas->canvas->pixels +(height-1)*canvas->canvas->w;
 
   SDL_Init(SDL_INIT_VIDEO); //SDL init
-  canvas->canvas = SDL_SetVideoMode(canvas->Width+canvas->Xext, canvas->Height+canvas->Yext, BPP, SDL_SWSURFACE); 
+  canvas->canvas = SDL_SetVideoMode(canvas->width+canvas->Xext, canvas->height+canvas->Yext, BPP, SDL_SWSURFACE); 
 
   c_hlinedraw(canvas, 1, 0, (pixel_t) SDL_MapRGB(canvas->canvas->format,  255, 255,  255));
-  for (y=10;y<Ymax;y+=10) {
-    c_hlinedraw(canvas, 3, y*Height/Ymax , (pixel_t) SDL_MapRGB(canvas->canvas->format,  220, 220,  220));
+  for (y=10;y<y_max;y+=10) {
+    c_hlinedraw(canvas, 3, y*height/y_max , (pixel_t) SDL_MapRGB(canvas->canvas->format,  220, 220,  220));
   }
   c_vlinedraw(canvas, 0, 1, (pixel_t) SDL_MapRGB(canvas->canvas->format,  255, 255,  255));
-  for (x=10;x<Xmax;x+=10) {
-    c_vlinedraw(canvas, x*Width/Xmax, 3, (pixel_t) SDL_MapRGB(canvas->canvas->format,  220, 220,  220));
+  for (x=10;x<x_max;x+=10) {
+    c_vlinedraw(canvas, x*width/x_max, 3, (pixel_t) SDL_MapRGB(canvas->canvas->format,  220, 220,  220));
   }
 
   return canvas;
 }
 
-dataholder_t *datainit(int Width, int Height, double Xmax, double Ymax, double Lcurrent, double INcurrent, double OUTcurrent) {
+dataholder_t *d_init(int width, int height, double x_max, double y_max, double current_level, double in_current, double out_current) {
   dataholder_t *data = malloc(sizeof(dataholder_t));
 
 
-  data->canvas=c_open(Width, Height, Xmax, Ymax);
+  data->canvas=c_open(width, height, x_max, y_max);
   data->Tcurrent=0;
-  data->Lcurrent=Lcurrent;
-  data->Lcolor= (pixel_t) SDL_MapRGB(data->canvas->canvas->format,  255, 180,  0);
-  data->INcurrent=INcurrent;
-  data->INcolor=(pixel_t) SDL_MapRGB(data->canvas->canvas->format,  180, 255,  0);
-  data->OUTcurrent=OUTcurrent;
-  data->OUTcolor=(pixel_t) SDL_MapRGB(data->canvas->canvas->format,  0, 180,  255);
+  data->current_level=current_level;
+  data->level_color= (pixel_t) SDL_MapRGB(data->canvas->canvas->format,  255, 180,  0);
+  data->in_current=in_current;
+  data->in_color=(pixel_t) SDL_MapRGB(data->canvas->canvas->format,  180, 255,  0);
+  data->out_current=out_current;
+  data->out_color=(pixel_t) SDL_MapRGB(data->canvas->canvas->format,  0, 180,  255);
 
 
   return data;
 }
 
-void setdatacolors(dataholder_t *data, pixel_t Lcolor, pixel_t INcolor, pixel_t OUTcolor) {
-  data->Lcolor=Lcolor;
-  data->INcolor=INcolor;
-  data->OUTcolor=OUTcolor;
+void d_setColors(dataholder_t *data, pixel_t level_color, pixel_t in_color, pixel_t out_color) {
+  data->level_color=level_color;
+  data->in_color=in_color;
+  data->out_color=out_color;
 }
 
-void datadraw(dataholder_t *data, double time, double level, double inangle, double outangle) {
-  c_linedraw(data->canvas,data->Tcurrent,data->Lcurrent,time,level,data->Lcolor);
-  c_linedraw(data->canvas,data->Tcurrent,data->INcurrent,time,inangle,data->INcolor);
-  c_linedraw(data->canvas,data->Tcurrent,data->OUTcurrent,time,outangle,data->OUTcolor);
+void d_draw(dataholder_t *data, double time, double level, double in_angle, double out_angle) {
+  c_linedraw(data->canvas,data->Tcurrent,data->current_level,time,level,data->level_color);
+  c_linedraw(data->canvas,data->Tcurrent,data->in_current,time,in_angle,data->in_color);
+  c_linedraw(data->canvas,data->Tcurrent,data->out_current,time,out_angle,data->out_color);
   data->Tcurrent = time;
-  data->Lcurrent = level;
-  data->INcurrent = inangle;
-  data->OUTcurrent = outangle;
+  data->current_level = level;
+  data->in_current = in_angle;
+  data->out_current = out_angle;
 
   SDL_Flip(data->canvas->canvas);
 }

@@ -2,6 +2,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 
 int receiveMsgFromServer(int socket_desc, char *server_message, struct sockaddr *server_addr);
 int sendMsgToServer(int socket_desc, char *client_message, struct sockaddr *server_addr);
