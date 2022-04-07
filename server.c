@@ -6,19 +6,22 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <math.h>
+#include <SDL/SDL.h>
 
 #define BUFFER_SIZE 2000
 #define MAX_FLUX_INITIAL 100
 #define ANGLE_INITIAL 50
 #define LEVEL_INITIAL 0.4
 
-int sendMsgToClient(int socket_desc, char *server_message, struct sockaddr *client_addr);
-int receiveMsgFromClient(int socket_desc, char *client_message, struct sockaddr *client_addr);
-void messageHandler(char *client_message, char *server_message);
-void *serverThreadFunction(void *arg);
-void *plantThreadFunction(void *arg);
-float clamp(float value, float max, float min);
-double outAngle(double tempo);
+//Graph
+#define SCREEN_W 640 //tamanho da janela que sera criada
+#define SCREEN_H 640
+//#define BPP 8
+//typedef Uint8 pixel_t;
+//#define BPP 16
+//typedef Uint16 pixel_t;
+#define BPP 32
+typedef Uint32 pixel_t;
 
 typedef struct
 {                     /*Struct to store values concerning to the plant being simulated*/
@@ -29,9 +32,56 @@ typedef struct
     double passed_time;
 } plant_t;
 
+//Graph////////////////////////////
+typedef struct {
+  SDL_Surface *canvas;
+  int Height; // canvas height
+  int Width;  // canvas width
+  int Xoffset; // X off set, in canvas pixels
+  int Yoffset; // Y off set, in canvas pixels
+  int Xext; // X extra width
+  int Yext; // Y extra height
+  double Xmax;
+  double Ymax;
+  double Xstep; // half a distance between X pixels in 'Xmax' scale
+
+  pixel_t *zpixel;
+
+} canvas_t;
+
+typedef struct {
+  canvas_t *canvas;
+  double   Tcurrent;
+  double   Lcurrent;
+  pixel_t Lcolor;
+  double   INcurrent;
+  pixel_t INcolor;
+  double   OUTcurrent;
+  pixel_t OUTcolor;
+
+} dataholder_t;
+//////////////////////////////////////
+
 // Global variables
 char *cmd;
 int value;
+
+int sendMsgToClient(int socket_desc, char *server_message, struct sockaddr *client_addr);
+int receiveMsgFromClient(int socket_desc, char *client_message, struct sockaddr *client_addr);
+void messageHandler(char *client_message, char *server_message);
+void *serverThreadFunction(void *arg);
+void *plantThreadFunction(void *arg);
+float clamp(float value, float max, float min);
+double outAngle(double tempo);
+dataholder_t *datainit(int Width, int Height, double Xmax, double Ymax, double Lcurrent, double INcurrent, double OUTcurrent);
+void c_hlinedraw(canvas_t *canvas, int xstep, int y, pixel_t color);
+void c_pixeldraw(canvas_t *canvas, int x, int y, pixel_t color);
+void c_vlinedraw(canvas_t *canvas, int x, int ystep, pixel_t color);
+void c_linedraw(canvas_t *canvas, double x0, double y0, double x1, double y1, pixel_t color);
+canvas_t *c_open(int Width, int Height, double Xmax, double Ymax);
+void setdatacolors(dataholder_t *data, pixel_t Lcolor, pixel_t INcolor, pixel_t OUTcolor);
+void quitevent();
+
 
 plant_t plant = {
     .max_flux = MAX_FLUX_INITIAL,
@@ -41,18 +91,157 @@ plant_t plant = {
     .passed_time = 0,
 };
 
-int main(void)
-{
-    pthread_t server_thread, plant_thread;
 
-    pthread_create(&server_thread, NULL, serverThreadFunction, NULL);
-    pthread_create(&plant_thread, NULL, plantThreadFunction, NULL);
+// int main(void)
+// {
+//     pthread_t server_thread, plant_thread;
 
-    pthread_join(server_thread, NULL);
-    pthread_join(plant_thread, NULL);
+//     pthread_create(&server_thread, NULL, serverThreadFunction, NULL);
+//     pthread_create(&plant_thread, NULL, plantThreadFunction, NULL);
 
-    return 0;
+//     pthread_join(server_thread, NULL);
+//     pthread_join(plant_thread, NULL);
+
+//     return 0;
+// }
+
+int main( int argc, const char* argv[] ) {
+  dataholder_t *data;
+  double t=0;
+
+  data = datainit(640,480,55,110,45,0,0);
+
+  for (t=0;t<50;t+=0.1) {
+    datadraw(data,t,(double)(50+20*cos(t/5)),(double)(70+10*sin(t/10)),(double)(20+5*cos(t/2.5)));
+  }
+
+  while(1) {
+    quitevent();
+  }
 }
+
+
+//Graph////////////////////////////////////////////
+inline void c_pixeldraw(canvas_t *canvas, int x, int y, pixel_t color)
+{
+  *( ((pixel_t*)canvas->canvas->pixels) + ((-y+canvas->Yoffset) * canvas->canvas->w + x+ canvas->Xoffset)) = color;
+}
+
+inline void c_hlinedraw(canvas_t *canvas, int xstep, int y, pixel_t color)
+{
+  int offset =  (-y+canvas->Yoffset) * canvas->canvas->w;
+  int x;
+
+  for (x = 0; x< canvas->Width+canvas->Xoffset ; x+=xstep) {
+        *( ((pixel_t*)canvas->canvas->pixels) + (offset + x)) = color;
+  }
+}
+
+inline void c_vlinedraw(canvas_t *canvas, int x, int ystep, pixel_t color)
+{
+  int offset = x+canvas->Xoffset;
+  int y;
+  int Ystep = ystep*canvas->canvas->w;
+
+  for (y = 0; y< canvas->Height+canvas->Yext ; y+=ystep) {
+    *( ((pixel_t*)canvas->canvas->pixels) + (offset + y*canvas->canvas->w)) = color;
+  }
+}
+
+inline void c_linedraw(canvas_t *canvas, double x0, double y0, double x1, double y1, pixel_t color) {
+  double x;
+
+  for (x=x0; x<=x1; x+=canvas->Xstep) {
+    c_pixeldraw(canvas, (int)(x*canvas->Width/canvas->Xmax+0.5), (int)((double)canvas->Height/canvas->Ymax*(y1*(x1-x)+y1*(x-x0))/(x1-x0)+0.5),color);
+  }
+}
+
+canvas_t *c_open(int Width, int Height, double Xmax, double Ymax)
+{
+  int x,y;
+  canvas_t *canvas;
+  canvas = malloc(sizeof(canvas_t));
+
+  canvas->Xoffset = 10;
+  canvas->Yoffset = Height;
+
+  canvas->Xext = 10;
+  canvas->Yext = 10;
+
+  canvas->Height = Height;
+  canvas->Width  = Width; 
+  canvas->Xmax   = Xmax;
+  canvas->Ymax   = Ymax;
+
+  canvas->Xstep  = Xmax/(double)Width/2;
+
+  //  canvas->zpixel = (pixel_t *)canvas->canvas->pixels +(Height-1)*canvas->canvas->w;
+
+  SDL_Init(SDL_INIT_VIDEO); //SDL init
+  canvas->canvas = SDL_SetVideoMode(canvas->Width+canvas->Xext, canvas->Height+canvas->Yext, BPP, SDL_SWSURFACE); 
+
+  c_hlinedraw(canvas, 1, 0, (pixel_t) SDL_MapRGB(canvas->canvas->format,  255, 255,  255));
+  for (y=10;y<Ymax;y+=10) {
+    c_hlinedraw(canvas, 3, y*Height/Ymax , (pixel_t) SDL_MapRGB(canvas->canvas->format,  220, 220,  220));
+  }
+  c_vlinedraw(canvas, 0, 1, (pixel_t) SDL_MapRGB(canvas->canvas->format,  255, 255,  255));
+  for (x=10;x<Xmax;x+=10) {
+    c_vlinedraw(canvas, x*Width/Xmax, 3, (pixel_t) SDL_MapRGB(canvas->canvas->format,  220, 220,  220));
+  }
+
+  return canvas;
+}
+
+dataholder_t *datainit(int Width, int Height, double Xmax, double Ymax, double Lcurrent, double INcurrent, double OUTcurrent) {
+  dataholder_t *data = malloc(sizeof(dataholder_t));
+
+
+  data->canvas=c_open(Width, Height, Xmax, Ymax);
+  data->Tcurrent=0;
+  data->Lcurrent=Lcurrent;
+  data->Lcolor= (pixel_t) SDL_MapRGB(data->canvas->canvas->format,  255, 180,  0);
+  data->INcurrent=INcurrent;
+  data->INcolor=(pixel_t) SDL_MapRGB(data->canvas->canvas->format,  180, 255,  0);
+  data->OUTcurrent=OUTcurrent;
+  data->OUTcolor=(pixel_t) SDL_MapRGB(data->canvas->canvas->format,  0, 180,  255);
+
+
+  return data;
+}
+
+void setdatacolors(dataholder_t *data, pixel_t Lcolor, pixel_t INcolor, pixel_t OUTcolor) {
+  data->Lcolor=Lcolor;
+  data->INcolor=INcolor;
+  data->OUTcolor=OUTcolor;
+}
+
+void datadraw(dataholder_t *data, double time, double level, double inangle, double outangle) {
+  c_linedraw(data->canvas,data->Tcurrent,data->Lcurrent,time,level,data->Lcolor);
+  c_linedraw(data->canvas,data->Tcurrent,data->INcurrent,time,inangle,data->INcolor);
+  c_linedraw(data->canvas,data->Tcurrent,data->OUTcurrent,time,outangle,data->OUTcolor);
+  data->Tcurrent = time;
+  data->Lcurrent = level;
+  data->INcurrent = inangle;
+  data->OUTcurrent = outangle;
+
+  SDL_Flip(data->canvas->canvas);
+}
+
+void quitevent() {
+  SDL_Event event;
+
+  while(SDL_PollEvent(&event)) { 
+    if(event.type == SDL_QUIT) { 
+      // close files, etc...
+
+      SDL_Quit();
+      exit(1); // this will terminate all threads !
+    }
+  }
+
+}
+//////////////////////////////////////////
+
 
 float clamp(float value, float min, float max)
 {
