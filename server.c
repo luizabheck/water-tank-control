@@ -71,7 +71,7 @@ int socket_desc;
 
 int sendMsgToClient(int socket_desc, char *server_message, struct sockaddr *client_addr);
 int receiveMsgFromClient(int socket_desc, char *client_message, struct sockaddr *client_addr);
-void messageHandler(char *client_message, char *server_message);
+void handleMessage(char *client_message, char *server_message);
 void *serverThreadFunction(void *arg);
 void *plantThreadFunction(void *arg);
 void *plotThreadFunction(void *arg);
@@ -413,7 +413,7 @@ void *serverThreadFunction(void *arg)
     {
         receiveMsgFromClient(socket_desc, client_message, (struct sockaddr *)&client_addr);
 
-        messageHandler(client_message, server_message);
+        handleMessage(client_message, server_message);
 
         sendMsgToClient(socket_desc, server_message, (struct sockaddr *)&client_addr);
     }
@@ -422,7 +422,7 @@ void *serverThreadFunction(void *arg)
     close(socket_desc);
 }
 
-void messageHandler(char *client_message, char *server_message)
+void handleMessage(char *client_message, char *server_message)
 {
     char value_str[10];
 
@@ -449,10 +449,10 @@ void messageHandler(char *client_message, char *server_message)
     }
     else if (strcmp(client_message, "GetLevel") == 0)
     {
-        // TODO Retornar nível atual
         strcpy(server_message, "Level#");
-        // strcat(current_level,"!");
-        // strcpy(server_message,strcat(server_message,current_level));
+        sprintf(value_str,"%f", plant.level);
+        strcat(value_str, "!");
+        strcpy(server_message, strcat(server_message, value_str));
     }
     else if (strcmp(client_message, "OpenValve") == 0)
     {
