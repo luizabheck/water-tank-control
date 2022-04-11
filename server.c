@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <math.h>
 #include <SDL/SDL.h>
+#include <time.h>
 
 #define BUFFER_SIZE 100
 #define MAX_FLUX_INITIAL 100
@@ -87,6 +88,7 @@ dataholder_t *d_init(int width, int height, double x_max, double y_max, double c
 void d_setColors(dataholder_t *data, pixel_t level_color, pixel_t in_color, pixel_t out_color);
 void d_draw(dataholder_t *data, double time, double level, double in_angle, double out_angle);
 void quitevent();
+long texec(struct timespec antes);
 
 plant_t plant = {
     .max_flux = MAX_FLUX_INITIAL,
@@ -225,6 +227,7 @@ void d_draw(dataholder_t *data, double time, double level, double in_angle, doub
 }
 
 void quitevent()
+
 {
     SDL_Event event;
 
@@ -240,6 +243,7 @@ void quitevent()
         }
     }
 }
+
 //////////////////////////////////////////
 
 float clamp(float value, float min, float max)
@@ -289,16 +293,11 @@ void *plotThreadFunction(void *arg)
 {
     dataholder_t *data;
 
-    data = d_init(640, 480, 10, 110, plant.level, plant.in_angle, plant.out_angle);
-
-    // data = datainit(640,480,55,110,45,0,0);
-
-    // for (t=0;t<50;t+=0.1) {
-    // datadraw(data,t,(double)(50+20*cos(t/5)),(double)(70+10*sin(t/10)),(double)(20+5*cos(t/2.5)));
+    data = d_init(640, 480, 200, 110, plant.level, plant.in_angle, plant.out_angle);
 
     while (1)
     {
-        d_draw(data, plant.passed_time, plant.level * 100, plant.in_angle, plant.out_angle);
+        d_draw(data, plant.passed_time/1000, plant.level * 100, plant.in_angle, plant.out_angle);
 
         quitevent();
         usleep(50000);
@@ -309,6 +308,8 @@ void *plantThreadFunction(void *arg)
 {
     float delta = 0, influx = 0, outflux = 0;
     int dT_ms = 10;
+
+    printf("Plant simulation started...");
 
     while (1)
     {
@@ -333,7 +334,7 @@ void *plantThreadFunction(void *arg)
         // printf("value: %d\n", value);
         //  printf("\ndelta: %f\n", delta);
 
-        printf("\nPlant delta: %.2f\n", delta);
+        // printf("\nPlant delta: %.2f\n", delta);
 
         if (delta > 0)
         {
@@ -369,7 +370,9 @@ void *plantThreadFunction(void *arg)
         outflux = (plant.max_flux / 100) * (plant.level / 1.25 + 0.2) * sin(M_PI / 2 * (plant.out_angle) / 100);
         plant.level = clamp(plant.level + 0.00002 * dT_ms * (influx - outflux), 0, 1);
 
-        plant.passed_time += 0.01;
+        plant.passed_time += dT_ms;
+
+        // printf("\npassed_time: %f\n", plant.passed_time);
 
         usleep(10000);
     }
@@ -460,7 +463,7 @@ void handleMessage(char *client_message, char *server_message)
     else if (strcmp(client_message, "GetLevel") == 0)
     {
         strcpy(server_message, "Level#");
-        printf("\nPLANT LEVEL: %f, %d", plant.level, (int)(plant.level * 100));
+        // printf("\nPLANT LEVEL: %f, %d", plant.level, (int)(plant.level * 100));
         sprintf(value_str, "%d", (int)(plant.level * 100));
         strcat(value_str, "!");
         strcpy(server_message, strcat(server_message, value_str));
@@ -513,7 +516,7 @@ int receiveMsgFromClient(int socket_desc, char *client_message, struct sockaddr 
     // printf("Received message from IP: %s and port: %i\n",
     //        inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
-    printf("Msg from client: %s\n", client_message);
+    // printf("Msg from client: %s\n", client_message);
     return 0;
 }
 

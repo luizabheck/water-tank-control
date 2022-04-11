@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <math.h>
 
 int receiveMsgFromServer(int socket_desc, char *server_message, struct sockaddr *server_addr);
 int sendMsgToServer(int socket_desc, char *client_message, struct sockaddr *server_addr);
@@ -64,7 +65,7 @@ int receiveMsgFromServer(int socket_desc, char *server_message, struct sockaddr 
         printf("Error while receiving server's msg\n");
         return -1;
     }
-    printf("Server's response: %s\n", server_message);
+    // printf("Server's response: %s\n", server_message);
     return 0;
 }
 
@@ -183,17 +184,19 @@ int control()
     float P = 0;
     float previous_D = 0;
     float previous_I = 0;
-    float ki = 0.008;
+    float ki = 0.8;
     float kp = 800;
-    int kd = 2;
+    int kd = 1;
     char command[BUFFER_SIZE];
     float valve_position = 0;
     float ref = 0.8;
-    float dT = 0.01;
+    float dT_s = 0.02;
     float level = 0;
     int aux = 50;
 
     float result = 0;
+
+    printf("Control started...");
 
     while (1)
     {
@@ -207,25 +210,15 @@ int control()
 
         error = ref - (level / 100.0);
 
-        I = previous_I + ki * (error + previous_error) * dT;
+        I = previous_I + ki * (error + previous_error) * dT_s;
 
-        D = previous_D + kd * (error - previous_error) / dT;
+        D = previous_D + kd * (error - previous_error) / dT_s;
 
         P = kp * error;
 
-        printf("I: %f\n", I);
-        printf("D: %f\n", D);
-        printf("P: %f\n", P);
-
-        // Anti wind up
-        // if (I > 30)
-        // {
-        //     I = 30;
-        // }
-        // if (I < -50)
-        // {
-        //     I = -50;
-        // }
+        // printf("I: %f\n", I);
+        // printf("D: %f\n", D);
+        // printf("P: %f\n", P);
 
         u = P + I + D;
 
@@ -234,14 +227,8 @@ int control()
 
         delta_u = u - valve_position;
 
-        // printf("\nu afterclamp: %f\n", u);
-        // printf("Delta_u: %f\n", delta_u);
-
         // Saturation
         delta_u = clamp(delta_u, -3, 3);
-        
-        // printf("\ndelta_u: %f\n", delta_u);
-        // valve_position += delta_u;
 
         if (delta_u != 0)
         {
@@ -249,7 +236,7 @@ int control()
             {
                 if ((aux + (int)delta_u) < 100)
                 {
-                    sprintf(command, "OpenValve#%d!", (int)delta_u);
+                    sprintf(command, "OpenValve#%d!", (int)round(delta_u));
                     result = executeCommand(command, "Open");
                     if (result == -1)
                     {
@@ -261,7 +248,7 @@ int control()
                 else if (aux != 100)
                 {
                     delta_u = 100 - aux;
-                    sprintf(command, "OpenValve#%d!", (int)delta_u);
+                    sprintf(command, "OpenValve#%d!", (int)round(delta_u));
                     result = executeCommand(command, "Open");
                     if (result == -1)
                     {
@@ -275,7 +262,7 @@ int control()
             {
                 if ((aux + (int)delta_u) > 0)
                 {
-                    sprintf(command, "CloseValve#%d!", -(int)delta_u);
+                    sprintf(command, "CloseValve#%d!", -(int)round(delta_u));
                     result = executeCommand(command, "Close");
                 if (result == -1)
                     {
@@ -287,7 +274,7 @@ int control()
                 else if (aux != 0)
                 {
                     delta_u = aux;
-                    sprintf(command, "CloseValve#%d!", (int)delta_u);
+                    sprintf(command, "CloseValve#%d!", (int)round(delta_u));
                     result = executeCommand(command, "Close");
                 if (result == -1)
                     {
@@ -298,16 +285,13 @@ int control()
                 }
             }
 
-            // printf("delta_u: %d\n", (int)delta_u);
-            // printf("aux: %d\n", aux);
-
             aux = clamp(aux, 0, 100);
 
             previous_error = error;
             previous_I = I;
             previous_D = D;
 
-            usleep(20000);
+            usleep(dT_s * 1000000);
         }
     }
 }
