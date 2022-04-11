@@ -11,9 +11,11 @@ int sendMsgToServer(int socket_desc, char *client_message, struct sockaddr *serv
 void *controlThreadFunction(void *arg);
 float executeCommand(char *command, char *expected_response);
 int socketConfig();
+int control();
+float clamp(float value, float min, float max);
 
 // TODO usar o tamanho total, multiplicar pelos bytes
-#define BUFFER_SIZE 2000
+#define BUFFER_SIZE 100
 
 // Global variables
 int socket_desc;
@@ -44,7 +46,7 @@ int sendMsgToServer(int socket_desc, char *client_message, struct sockaddr *serv
     {
         printf("Unable to send message\n");
         return -1;
-    } 
+    }
     return 0;
 }
 
@@ -52,6 +54,8 @@ int receiveMsgFromServer(int socket_desc, char *server_message, struct sockaddr 
 {
     // sizeof(*server_addr) quero o tamanho do que o ponteiro esta apontando
     int server_struct_length = sizeof(*server_addr);
+
+    memset(server_message, 0, BUFFER_SIZE * sizeof(char));
 
     // Receive the server's response:
     if (recvfrom(socket_desc, server_message, BUFFER_SIZE, 0,
@@ -78,7 +82,7 @@ int socketConfig()
 
     // Set port and IP:
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(BUFFER_SIZE);
+    server_addr.sin_port = htons(7000);
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     return 0;
@@ -120,8 +124,6 @@ float executeCommand(char *command, char *expected_response)
         return -1;
     }
 
-    printf("VALUE: %f", value);
-
     return value;
 }
 
@@ -133,21 +135,179 @@ void *controlThreadFunction(void *arg)
     result = executeCommand("CommTest!", "Comm");
     if (result == -1)
     {
-        printf("CommTest failed!");
+        printf("CommTest failed!\n");
         return (void *)(-1);
     }
 
     result = executeCommand("SetMax#100!", "Max");
     if (result == -1)
     {
-        printf("SetMax failed!");
+        printf("SetMax failed!\n");
         return (void *)(-1);
     }
 
     result = executeCommand("Start!", "Start");
     if (result == -1)
     {
-        printf("Start failed!");
+        printf("Start failed!\n");
         return (void *)(-1);
+    }
+
+    // Valve Control
+    control();
+}
+
+float clamp(float value, float min, float max)
+{
+    if (value >= max)
+    {
+        return max;
+    }
+    else if (value <= min)
+    {
+        return min;
+    }
+
+    return value;
+}
+
+int control()
+{
+
+    float error;
+    float previous_error = 0;
+    float u;
+    float delta_u = 0;
+    float I = 0;
+    float D = 0;
+    float P = 0;
+    float previous_D = 0;
+    float previous_I = 0;
+    float ki = 0.008;
+    float kp = 800;
+    int kd = 2;
+    char command[BUFFER_SIZE];
+    float valve_position = 0;
+    float ref = 0.8;
+    float dT = 0.01;
+    float level = 0;
+    int aux = 50;
+
+    float result = 0;
+
+    while (1)
+    {
+
+        level = executeCommand("GetLevel!", "Level");
+        if (level == -1)
+        {
+            printf("GetLevel failed!\n");
+            return -1;
+        }
+
+        error = ref - (level / 100.0);
+
+        I = previous_I + ki * (error + previous_error) * dT;
+
+        D = previous_D + kd * (error - previous_error) / dT;
+
+        P = kp * error;
+
+        printf("I: %f\n", I);
+        printf("D: %f\n", D);
+        printf("P: %f\n", P);
+
+        // Anti wind up
+        // if (I > 30)
+        // {
+        //     I = 30;
+        // }
+        // if (I < -50)
+        // {
+        //     I = -50;
+        // }
+
+        u = P + I + D;
+
+        // Control saturation
+        u = clamp(u, -95, 95);
+
+        delta_u = u - valve_position;
+
+        // printf("\nu afterclamp: %f\n", u);
+        // printf("Delta_u: %f\n", delta_u);
+
+        // Saturation
+        delta_u = clamp(delta_u, -3, 3);
+        
+        // printf("\ndelta_u: %f\n", delta_u);
+        // valve_position += delta_u;
+
+        if (delta_u != 0)
+        {
+            if (delta_u > 0)
+            {
+                if ((aux + (int)delta_u) < 100)
+                {
+                    sprintf(command, "OpenValve#%d!", (int)delta_u);
+                    result = executeCommand(command, "Open");
+                    if (result == -1)
+                    {
+                        printf("OpenValve failed!\n");
+                        return -1;
+                    }
+                    aux = aux + (int)delta_u;
+                }
+                else if (aux != 100)
+                {
+                    delta_u = 100 - aux;
+                    sprintf(command, "OpenValve#%d!", (int)delta_u);
+                    result = executeCommand(command, "Open");
+                    if (result == -1)
+                    {
+                        printf("OpenValve failed!\n");
+                        return -1;
+                    }
+                    aux = 100;
+                }
+            }
+            else if (delta_u < 0)
+            {
+                if ((aux + (int)delta_u) > 0)
+                {
+                    sprintf(command, "CloseValve#%d!", -(int)delta_u);
+                    result = executeCommand(command, "Close");
+                if (result == -1)
+                    {
+                        printf("CloseValve failed!\n");
+                        return -1;
+                    }
+                    aux = aux + (int)delta_u;
+                }
+                else if (aux != 0)
+                {
+                    delta_u = aux;
+                    sprintf(command, "CloseValve#%d!", (int)delta_u);
+                    result = executeCommand(command, "Close");
+                if (result == -1)
+                    {
+                        printf("CloseValve failed!\n");
+                        return -1;
+                    }
+                    aux = 0;
+                }
+            }
+
+            // printf("delta_u: %d\n", (int)delta_u);
+            // printf("aux: %d\n", aux);
+
+            aux = clamp(aux, 0, 100);
+
+            previous_error = error;
+            previous_I = I;
+            previous_D = D;
+
+            usleep(20000);
+        }
     }
 }

@@ -8,7 +8,7 @@
 #include <math.h>
 #include <SDL/SDL.h>
 
-#define BUFFER_SIZE 2000
+#define BUFFER_SIZE 100
 #define MAX_FLUX_INITIAL 100
 #define ANGLE_INITIAL 50
 #define LEVEL_INITIAL 0.4
@@ -26,7 +26,7 @@ typedef Uint32 pixel_t;
 typedef struct
 {                     /*Struct to store values concerning to the plant being simulated*/
     double max_flux;  /*Max out flux; Can be changed via SetMax command*/
-    double in_angle;     /*Input Valve angle*/
+    double in_angle;  /*Input Valve angle*/
     double out_angle; /*Output Valve angle*/
     double level;     /*Current plant level*/
     double passed_time;
@@ -65,7 +65,7 @@ typedef struct
 //////////////////////////////////////
 
 // Global variables
-char *cmd;
+char cmd[BUFFER_SIZE];
 int value;
 int socket_desc;
 
@@ -76,7 +76,7 @@ void *serverThreadFunction(void *arg);
 void *plantThreadFunction(void *arg);
 void *plotThreadFunction(void *arg);
 float clamp(float value, float max, float min);
-double outAngle(double tempo);
+double outAngle(double time);
 
 void c_hlinedraw(canvas_t *canvas, int x_step, int y, pixel_t color);
 void c_pixeldraw(canvas_t *canvas, int x, int y, pixel_t color);
@@ -99,18 +99,17 @@ plant_t plant = {
 int main(void)
 {
     pthread_t server_thread, plant_thread, plot_thread;
-    
+
     pthread_create(&plot_thread, NULL, plotThreadFunction, NULL);
     pthread_create(&server_thread, NULL, serverThreadFunction, NULL);
     pthread_create(&plant_thread, NULL, plantThreadFunction, NULL);
 
-    pthread_join(plot_thread,NULL);
+    pthread_join(plot_thread, NULL);
     pthread_join(server_thread, NULL);
     pthread_join(plant_thread, NULL);
 
     return 0;
 }
-
 
 // Graph////////////////////////////////////////////
 inline void c_pixeldraw(canvas_t *canvas, int x, int y, pixel_t color)
@@ -196,11 +195,11 @@ dataholder_t *d_init(int width, int height, double x_max, double y_max, double c
     data->canvas = c_open(width, height, x_max, y_max);
     data->current_time = 0;
     data->current_level = current_level;
-    data->level_color = (pixel_t)SDL_MapRGB(data->canvas->canvas->format, 255, 180, 0);
+    data->level_color = (pixel_t)SDL_MapRGB(data->canvas->canvas->format, 255, 180, 0); // Orange
     data->in_current = in_current;
-    data->in_color = (pixel_t)SDL_MapRGB(data->canvas->canvas->format, 180, 255, 0);
+    data->in_color = (pixel_t)SDL_MapRGB(data->canvas->canvas->format, 180, 255, 0); // Green
     data->out_current = out_current;
-    data->out_color = (pixel_t)SDL_MapRGB(data->canvas->canvas->format, 0, 180, 255);
+    data->out_color = (pixel_t)SDL_MapRGB(data->canvas->canvas->format, 0, 180, 255); // Blue
 
     return data;
 }
@@ -257,31 +256,31 @@ float clamp(float value, float min, float max)
     return value;
 }
 
-double outAngle(double tempo)
+double outAngle(double time)
 {
-    if (tempo <= 0)
+    if (time <= 0)
     {
         return 50; /*Starting value*/
     }
-    if (tempo < 20000)
+    if (time < 20000)
     {
-        return (50 + tempo / 400); /*Ramp up*/
+        return (50 + time / 400); /*Ramp up*/
     }
-    if (tempo < 30000)
+    if (time < 30000)
     {
         return 100;
     }
-    if (tempo < 50000)
+    if (time < 50000)
     {
-        return (100 - (tempo - 30000) / 250); /*Ramp down*/
+        return (100 - (time - 30000) / 250); /*Ramp down*/
     }
-    if (tempo < 70000)
+    if (time < 70000)
     {
-        return (20 + (tempo - 50000) / 1000);
+        return (20 + (time - 50000) / 1000);
     }
-    if (tempo < 100000)
+    if (time < 100000)
     {
-        return (40 + 20 * cos((tempo - 70000) * 2 * M_PI / 10000));
+        return (40 + 20 * cos((time - 70000) * 2 * M_PI / 10000));
     }
     return 100;
 }
@@ -292,15 +291,15 @@ void *plotThreadFunction(void *arg)
 
     data = d_init(640, 480, 10, 110, plant.level, plant.in_angle, plant.out_angle);
 
-    //data = datainit(640,480,55,110,45,0,0);
+    // data = datainit(640,480,55,110,45,0,0);
 
-  //for (t=0;t<50;t+=0.1) {
-    //datadraw(data,t,(double)(50+20*cos(t/5)),(double)(70+10*sin(t/10)),(double)(20+5*cos(t/2.5)));
+    // for (t=0;t<50;t+=0.1) {
+    // datadraw(data,t,(double)(50+20*cos(t/5)),(double)(70+10*sin(t/10)),(double)(20+5*cos(t/2.5)));
 
-    while(1)
+    while (1)
     {
-        d_draw(data, plant.passed_time, plant.level*100, plant.in_angle, plant.out_angle);
-        
+        d_draw(data, plant.passed_time, plant.level * 100, plant.in_angle, plant.out_angle);
+
         quitevent();
         usleep(50000);
     }
@@ -315,6 +314,7 @@ void *plantThreadFunction(void *arg)
     {
         if (cmd != NULL)
         {
+            // printf("cmd: %p, %c\n", cmd, *cmd);
             if (strcmp(cmd, "OpenValve") == 0) /*If are equal*/
             {
                 delta += value;
@@ -329,7 +329,11 @@ void *plantThreadFunction(void *arg)
             }
         }
 
-        //printf("\nPlant delta1: %.2f\n", delta);
+        // printf("cmd: %s\n", cmd);
+        // printf("value: %d\n", value);
+        //  printf("\ndelta: %f\n", delta);
+
+        printf("\nPlant delta: %.2f\n", delta);
 
         if (delta > 0)
         {
@@ -343,7 +347,7 @@ void *plantThreadFunction(void *arg)
                 plant.in_angle = clamp(plant.in_angle + 0.01 * dT_ms, 0, 100);
                 delta -= 0.01 * dT_ms;
             }
-            //printf("Plant delta2: %.2f\n", delta);
+            // printf("Plant delta2: %.2f\n", delta);
         }
         else if (delta < 0)
         {
@@ -358,15 +362,15 @@ void *plantThreadFunction(void *arg)
                 delta += 0.01 * dT_ms;
             }
         }
-        //printf("Plant in_angle: %.2f\n", plant.in_angle);
+        // printf("Plant in_angle: %.2f\n", plant.in_angle);
 
         influx = 1 * sin(M_PI / 2 * plant.in_angle / 100);
         plant.out_angle = outAngle(plant.passed_time);
         outflux = (plant.max_flux / 100) * (plant.level / 1.25 + 0.2) * sin(M_PI / 2 * (plant.out_angle) / 100);
         plant.level = clamp(plant.level + 0.00002 * dT_ms * (influx - outflux), 0, 1);
 
-        //printf("Plant level: %.2f\n", plant.level);
         plant.passed_time += 0.01;
+
         usleep(10000);
     }
 }
@@ -396,7 +400,7 @@ void *serverThreadFunction(void *arg)
 
     // Set port and IP:
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(BUFFER_SIZE);
+    server_addr.sin_port = htons(7000);
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     // Bind to the set port and IP:
@@ -425,17 +429,23 @@ void *serverThreadFunction(void *arg)
 void handleMessage(char *client_message, char *server_message)
 {
     char value_str[10];
+    char *cmd_pointer;
+    // char client_message[BUFFER_SIZE];
 
     if (strstr(client_message, "#") == NULL) // Checks if has not received any argument
     {
-        cmd = strtok(client_message, "!"); // Breaks the string to eliminate the '!'
+        cmd_pointer = strtok(client_message, "!"); // Breaks the string to eliminate the '!'
     }
     else // If has arguments
     {
-        cmd = strtok(client_message, "#");    // Gets the command related part of message
-        strcpy(value_str, strtok(NULL, "!")); // Gets the value part of message
-        value = atoi(value_str);              // Converts the received value (string) to integer
+        cmd_pointer = strtok(client_message, "#"); // Gets the command related part of message
+        strcpy(value_str, strtok(NULL, "!"));      // Gets the value part of message
+        value = atoi(value_str);                   // Converts the received value (string) to integer
     }
+
+    strcpy(cmd, cmd_pointer);
+
+    // printf("cmd1: %s\n", cmd);
 
     // Respond to client:
     if (strcmp(client_message, "CommTest") == 0)
@@ -450,7 +460,8 @@ void handleMessage(char *client_message, char *server_message)
     else if (strcmp(client_message, "GetLevel") == 0)
     {
         strcpy(server_message, "Level#");
-        sprintf(value_str,"%f", plant.level);
+        printf("\nPLANT LEVEL: %f, %d", plant.level, (int)(plant.level * 100));
+        sprintf(value_str, "%d", (int)(plant.level * 100));
         strcat(value_str, "!");
         strcpy(server_message, strcat(server_message, value_str));
     }
@@ -482,6 +493,8 @@ int receiveMsgFromClient(int socket_desc, char *client_message, struct sockaddr 
 {
     // sizeof(*server_addr) quero o tamanho do que o ponteiro esta apontando
     int client_struct_length = sizeof(*client_addr);
+
+    memset(client_message, 0, BUFFER_SIZE * sizeof(char));
 
     // Receive client's message:
     // MSG_WAITALL (since Linux 2.2)
