@@ -86,7 +86,7 @@ int socketConfig()
 
     // Set port and IP:
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(7000);
+    server_addr.sin_port = htons(8000);
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     return 0;
@@ -149,7 +149,7 @@ void *controlThreadFunction(void *arg)
         printf("SetMax failed!\n");
         return (void *)(-1);
     }
-
+    
     result = executeCommand("Start!", "Start");
     if (result == -1)
     {
@@ -184,10 +184,10 @@ int control()
     float delta_u = 0;
     float P = 0, I = 0, D = 0;
     float previous_D = 0, previous_I = 0;
-    float ki = 0.8, kp = 800, kd = 1;
+    float ki = 0.3, kp = 800, kd = 2;
     char command[BUFFER_SIZE];
     float ref = 0.8;
-    float dT_s = 0.04;
+    float dT_s = 0.05;
     float level = 0;
     int valve_position = 50;
     struct timespec start_time, end_time;
@@ -212,13 +212,12 @@ int control()
 
         error = ref - (level / 100.0);
 
+        P = kp * error;
+
         I = previous_I + ki * (error + previous_error) * dT_s;
 
         D = previous_D + kd * (error - previous_error) / dT_s;
-
-        P = kp * error;
-
-        // printf("P: %3.2f\t\tI: %3.2f\t\tD: %3.2f\n", P, I, D);
+        
 
         u = P + I + D;
 
@@ -226,9 +225,6 @@ int control()
         u = clamp(u, -95, 95);
 
         delta_u = u;
-
-        // Saturation
-        // delta_u = clamp(delta_u, -10, 10);
 
         if (delta_u != 0)
         {
@@ -293,7 +289,7 @@ int control()
 
             clock_gettime(CLOCK_MONOTONIC_RAW, &end_time);
             elapsed_time = (end_time.tv_nsec - start_time.tv_nsec)/1000;
-            variavel_do_danilo = ((dT_s * 1000000)-elapsed_time);
+            variavel_do_danilo = ((dT_s * 1000000)-elapsed_time)/4;
 
             usleep(max(variavel_do_danilo,0));
         }
