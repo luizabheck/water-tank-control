@@ -16,7 +16,7 @@
 #define LEVEL_INITIAL 0.4
 #define SIMULATION_PERIOD_MS 10
 
-#define max(a,b) ((a) > (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
 
 // Graph
 #define SCREEN_W 640 // tamanho da janela que sera criada
@@ -37,7 +37,8 @@ typedef struct
     double passed_time;
 } plant_t;
 
-typedef struct{
+typedef struct
+{
     char command[BUFFER_SIZE];
     int value;
 } message_t;
@@ -107,8 +108,6 @@ dataholder_t *d_init(int width, int height, double x_max, double y_max, double c
 void d_setColors(dataholder_t *data, pixel_t level_color, pixel_t in_color, pixel_t out_color);
 void d_draw(dataholder_t *data, double time, double level, double in_angle, double out_angle);
 void quitevent();
-long texec(struct timespec antes);
-
 
 int main(void)
 {
@@ -135,6 +134,7 @@ int main(void)
 }
 
 // Graph////////////////////////////////////////////
+
 inline void c_pixeldraw(canvas_t *canvas, int x, int y, pixel_t color)
 {
     *(((pixel_t *)canvas->canvas->pixels) + ((-y + canvas->Yoffset) * canvas->canvas->w + x + canvas->Xoffset)) = color;
@@ -315,18 +315,19 @@ void *plotThreadFunction(void *arg)
 {
     dataholder_t *data;
 
-    data = d_init(640, 480, 200, 110, plant.level, plant.in_angle, plant.out_angle);
+    data = d_init(640, 480, 200, 110, plant.level * 100, plant.in_angle, plant.out_angle);
 
     while (1)
     {
-        d_draw(data, plant.passed_time/1000, plant.level * 100, plant.in_angle, plant.out_angle);
+        d_draw(data, plant.passed_time / 1000, plant.level * 100, plant.in_angle, plant.out_angle);
 
         quitevent();
-        usleep(50000);
+        usleep(5000);
     }
 }
 
-void resetPlant(){
+void resetPlant()
+{
     memcpy(&plant, &initial_plant, sizeof(initial_plant));
 }
 
@@ -339,12 +340,13 @@ void *plantThreadFunction(void *arg)
     long variavel_do_danilo = 0;
     message_t received_msg;
 
-    while(1)
+    while (1)
     {
-        int error = mq_receive(message_queue, (char*)&received_msg, sizeof(received_msg), 0);
+        int error = mq_receive(message_queue, (char *)&received_msg, sizeof(received_msg), 0);
         if (error != -1)
         {
-            if (strcmp(received_msg.command, "Start") == 0){
+            if (strcmp(received_msg.command, "Start") == 0)
+            {
                 break;
             }
         }
@@ -359,23 +361,23 @@ void *plantThreadFunction(void *arg)
     {
         clock_gettime(CLOCK_MONOTONIC_RAW, &start_time);
 
-        int error = mq_receive(message_queue, (char*)&received_msg, sizeof(received_msg), 0);
+        int error = mq_receive(message_queue, (char *)&received_msg, sizeof(received_msg), 0);
 
         if (error != -1)
         {
             if (strcmp(received_msg.command, "Start") == 0)
             {
                 resetPlant();
-            } else
-            if (strcmp(received_msg.command, "OpenValve") == 0) /*If are equal*/
+            }
+            else if (strcmp(received_msg.command, "OpenValve") == 0) /*If are equal*/
             {
                 delta += received_msg.value;
-            }else 
-            if (strcmp(received_msg.command, "CloseValve") == 0)
+            }
+            else if (strcmp(received_msg.command, "CloseValve") == 0)
             {
                 delta -= received_msg.value;
-            }else
-            if (strcmp(received_msg.command, "SetMax") == 0)
+            }
+            else if (strcmp(received_msg.command, "SetMax") == 0)
             {
                 plant.max_flux = received_msg.value;
             }
@@ -420,10 +422,11 @@ void *plantThreadFunction(void *arg)
         // printf("\npassed_time: %f\n", plant.passed_time);
 
         clock_gettime(CLOCK_MONOTONIC_RAW, &end_time);
-        elapsed_time = (end_time.tv_nsec - start_time.tv_nsec)/1000;
-        variavel_do_danilo = ((dT_ms * 1000)-elapsed_time)/4;
+        elapsed_time = (end_time.tv_nsec - start_time.tv_nsec) / 1000;
+        variavel_do_danilo = ((dT_ms * 1000) - elapsed_time) / 4;
+        printf("plant level: %f\n", plant.level);
 
-        usleep(max(variavel_do_danilo,0));
+        usleep(max(variavel_do_danilo, 0));
     }
 }
 
@@ -452,7 +455,7 @@ void *serverThreadFunction(void *arg)
 
     // Set port and IP:
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(8000);
+    server_addr.sin_port = htons(7000);
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     // Bind to the set port and IP:
@@ -494,12 +497,12 @@ void handleMessage(char *client_message, char *server_message)
     {
         cmd_pointer = strtok(client_message, "#"); // Gets the command related part of message
         strcpy(value_str, strtok(NULL, "!"));      // Gets the value part of message
-        received_msg.value = atoi(value_str);                   // Converts the received value (string) to integer
+        received_msg.value = atoi(value_str);      // Converts the received value (string) to integer
     }
 
     strcpy(received_msg.command, cmd_pointer);
 
-    mq_send(message_queue, (char*)&received_msg, sizeof(received_msg), 0);
+    mq_send(message_queue, (char *)&received_msg, sizeof(received_msg), 0);
     // printf("cmd1: %s\n", cmd);
 
     // Respond to client:
