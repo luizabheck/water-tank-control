@@ -14,6 +14,8 @@
 #define ANGLE_INITIAL 50
 #define LEVEL_INITIAL 0.4
 
+#define max(a,b) ((a) > (b) ? (a) : (b))
+
 // Graph
 #define SCREEN_W 640 // tamanho da janela que sera criada
 #define SCREEN_H 640
@@ -308,11 +310,16 @@ void *plantThreadFunction(void *arg)
 {
     float delta = 0, influx = 0, outflux = 0;
     int dT_ms = 10;
+    struct timespec start_time, end_time;
+    long elapsed_time = 0;
+    long variavel_do_danilo = 0;
 
-    printf("Plant simulation started...");
+    printf("Plant simulation started\n");
 
     while (1)
     {
+        clock_gettime(CLOCK_MONOTONIC_RAW, &start_time);
+
         if (cmd != NULL)
         {
             // printf("cmd: %p, %c\n", cmd, *cmd);
@@ -374,7 +381,12 @@ void *plantThreadFunction(void *arg)
 
         // printf("\npassed_time: %f\n", plant.passed_time);
 
-        usleep(10000);
+        clock_gettime(CLOCK_MONOTONIC_RAW, &end_time);
+        elapsed_time = (end_time.tv_nsec - start_time.tv_nsec)/1000;
+        variavel_do_danilo = ((dT_ms * 1000)-elapsed_time);
+
+        usleep(max(variavel_do_danilo,0));
+
     }
 }
 
@@ -464,7 +476,7 @@ void handleMessage(char *client_message, char *server_message)
     {
         strcpy(server_message, "Level#");
         // printf("\nPLANT LEVEL: %f, %d", plant.level, (int)(plant.level * 100));
-        sprintf(value_str, "%d", (int)(plant.level * 100));
+        sprintf(value_str, "%d", (int)round(plant.level * 100));
         strcat(value_str, "!");
         strcpy(server_message, strcat(server_message, value_str));
     }

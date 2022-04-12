@@ -6,6 +6,9 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
+
+#define max(a,b) ((a) > (b) ? (a) : (b))
 
 int receiveMsgFromServer(int socket_desc, char *server_message, struct sockaddr *server_addr);
 int sendMsgToServer(int socket_desc, char *client_message, struct sockaddr *server_addr);
@@ -179,27 +182,26 @@ int control()
     float previous_error = 0;
     float u;
     float delta_u = 0;
-    float I = 0;
-    float D = 0;
-    float P = 0;
-    float previous_D = 0;
-    float previous_I = 0;
-    float ki = 0.8;
-    float kp = 800;
-    int kd = 1;
+    float P = 0, I = 0, D = 0;
+    float previous_D = 0, previous_I = 0;
+    float ki = 0.8, kp = 800, kd = 1;
     char command[BUFFER_SIZE];
-    float valve_position = 0;
     float ref = 0.8;
-    float dT_s = 0.02;
+    float dT_s = 0.04;
     float level = 0;
-    int aux = 50;
+    int valve_position = 50;
+    struct timespec start_time, end_time;
+    long elapsed_time = 0;
+    long variavel_do_danilo = 0;
 
     float result = 0;
 
-    printf("Control started...");
+    printf("Control started");
 
     while (1)
     {
+
+        clock_gettime(CLOCK_MONOTONIC_RAW, &start_time);
 
         level = executeCommand("GetLevel!", "Level");
         if (level == -1)
@@ -216,25 +218,23 @@ int control()
 
         P = kp * error;
 
-        // printf("I: %f\n", I);
-        // printf("D: %f\n", D);
-        // printf("P: %f\n", P);
+        // printf("P: %3.2f\t\tI: %3.2f\t\tD: %3.2f\n", P, I, D);
 
         u = P + I + D;
 
         // Control saturation
         u = clamp(u, -95, 95);
 
-        delta_u = u - valve_position;
+        delta_u = u;
 
         // Saturation
-        delta_u = clamp(delta_u, -3, 3);
+        // delta_u = clamp(delta_u, -10, 10);
 
         if (delta_u != 0)
         {
             if (delta_u > 0)
             {
-                if ((aux + (int)delta_u) < 100)
+                if ((valve_position + (int)delta_u) < 100)
                 {
                     sprintf(command, "OpenValve#%d!", (int)round(delta_u));
                     result = executeCommand(command, "Open");
@@ -243,11 +243,11 @@ int control()
                         printf("OpenValve failed!\n");
                         return -1;
                     }
-                    aux = aux + (int)delta_u;
+                    valve_position = valve_position + (int)round(delta_u);
                 }
-                else if (aux != 100)
+                else if (valve_position != 100)
                 {
-                    delta_u = 100 - aux;
+                    delta_u = 100 - valve_position;
                     sprintf(command, "OpenValve#%d!", (int)round(delta_u));
                     result = executeCommand(command, "Open");
                     if (result == -1)
@@ -255,12 +255,12 @@ int control()
                         printf("OpenValve failed!\n");
                         return -1;
                     }
-                    aux = 100;
+                    valve_position = 100;
                 }
             }
             else if (delta_u < 0)
             {
-                if ((aux + (int)delta_u) > 0)
+                if ((valve_position + (int)delta_u) > 0)
                 {
                     sprintf(command, "CloseValve#%d!", -(int)round(delta_u));
                     result = executeCommand(command, "Close");
@@ -269,11 +269,11 @@ int control()
                         printf("CloseValve failed!\n");
                         return -1;
                     }
-                    aux = aux + (int)delta_u;
+                    valve_position = valve_position + (int)round(delta_u);
                 }
-                else if (aux != 0)
+                else if (valve_position != 0)
                 {
-                    delta_u = aux;
+                    delta_u = valve_position;
                     sprintf(command, "CloseValve#%d!", (int)round(delta_u));
                     result = executeCommand(command, "Close");
                 if (result == -1)
@@ -281,17 +281,23 @@ int control()
                         printf("CloseValve failed!\n");
                         return -1;
                     }
-                    aux = 0;
+                    valve_position = 0;
                 }
             }
 
-            aux = clamp(aux, 0, 100);
+            valve_position = clamp(valve_position, 0, 100);
 
             previous_error = error;
             previous_I = I;
             previous_D = D;
 
-            usleep(dT_s * 1000000);
+            clock_gettime(CLOCK_MONOTONIC_RAW, &end_time);
+            elapsed_time = (end_time.tv_nsec - start_time.tv_nsec)/1000;
+            variavel_do_danilo = ((dT_s * 1000000)-elapsed_time);
+
+            usleep(max(variavel_do_danilo,0));
         }
     }
+
+    
 }
