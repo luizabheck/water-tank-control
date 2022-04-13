@@ -13,6 +13,12 @@
 
 // TODO usar o tamanho total, multiplicar pelos bytes
 #define BUFFER_SIZE 100
+#define KI 40
+#define KD 10
+#define KP 800
+#define REFERENCE 0.8
+#define dT_MS 0.05
+
 
 // Graph
 #define SCREEN_W 640 // tamanho da janela que sera criada
@@ -378,7 +384,7 @@ void *plotThreadFunction(void *arg)
         d_draw(data, passed_time_ms / 1000, level, valve_position, 0);
 
         quitevent();
-        usleep(5000);
+        usleep(50000);
     }
 }
 
@@ -399,27 +405,23 @@ float clamp(float value, float min, float max)
 int control()
 {
 
-    float error;
-    float previous_error = 0;
-    float u;
-    float delta_u = 0;
+    float error = 0, previous_error = 0;
+    float u = 0, delta_u = 0;
     float P = 0, I = 0, D = 0;
     float previous_D = 0, previous_I = 0;
-    float ki = 40, kp = 800, kd = 10;
+    float kp = KP, ki = KI, kd = KD;
     char command[BUFFER_SIZE];
-    float ref = 0.8;
-    float dT_s = 0.05;
-    struct timespec start_time_cycle, end_time;
-    long elapsed_time_us = 0;
-    long delta_time_us = 0;
-
+    float ref = REFERENCE;
+    float dT_s = dT_MS;
+    struct timespec start_time, end_time;
+    long elapsed_time_us = 0, delta_time_us = 0;
     float result = 0;
 
     printf("Control started\n");
 
     while (1)
     {
-        clock_gettime(CLOCK_MONOTONIC_RAW, &start_time_cycle);
+        clock_gettime(CLOCK_MONOTONIC_RAW, &start_time);
 
         level = executeCommand("GetLevel!", "Level");
         if (level == -1)
@@ -506,8 +508,8 @@ int control()
 
             clock_gettime(CLOCK_MONOTONIC_RAW, &end_time);
 
-            elapsed_time_us = (end_time.tv_nsec - start_time_cycle.tv_nsec) / 1000;
-            delta_time_us = ((dT_s * 1000000) - elapsed_time_us) / 4;
+            elapsed_time_us = (end_time.tv_nsec - start_time.tv_nsec) / 1000;
+            delta_time_us = ((dT_s * 1000000) - elapsed_time_us);
         }
 
         passed_time_ms += dT_s * 1000;

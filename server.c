@@ -329,7 +329,7 @@ void *plotThreadFunction(void *arg)
         d_draw(data, plant.passed_time_ms / 1000, plant.level * 100, plant.in_angle, plant.out_angle);
 
         quitevent();
-        usleep(5000);
+        usleep(50000);
     }
 }
 
@@ -429,12 +429,13 @@ void *plantThreadFunction(void *arg)
 
         plant.passed_time_ms += dT_ms;
 
+
         pthread_mutex_unlock(&plant_mutex);
         // printf("\npassed_time: %f\n", plant.passed_time_ms);
 
         clock_gettime(CLOCK_MONOTONIC_RAW, &end_time);
         elapsed_time_us = (end_time.tv_nsec - start_time.tv_nsec) / 1000;
-        delta_time_us = ((dT_ms * 1000) - elapsed_time_us) / 4;
+        delta_time_us = ((dT_ms * 1000) - elapsed_time_us);
 
         usleep(max(delta_time_us, 0));
     }
