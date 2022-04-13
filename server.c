@@ -87,6 +87,8 @@ const plant_t initial_plant = {
     .passed_time_ms = 0,
 };
 
+pthread_mutex_t plant_mutex;
+
 plant_t plant;
 
 int sendMsgToClient(int socket_desc, char *server_message, struct sockaddr *client_addr);
@@ -118,6 +120,11 @@ int main(void)
         .mq_maxmsg = 10,
         .mq_flags = 0,
     };
+
+    if (pthread_mutex_init(&plant_mutex, NULL) != 0){
+        printf("Mutex initialization failed\n");
+        return 1;
+    }
 
     mq_unlink("/queue");
     message_queue = mq_open("/queue", O_CREAT | O_RDWR | O_NONBLOCK, 0664, &attr);
@@ -363,6 +370,8 @@ void *plantThreadFunction(void *arg)
 
         int error = mq_receive(message_queue, (char *)&received_msg, sizeof(received_msg), 0);
 
+        pthread_mutex_lock(&plant_mutex);
+
         if (error != -1)
         {
             if (strcmp(received_msg.command, "Start") == 0)
@@ -412,6 +421,7 @@ void *plantThreadFunction(void *arg)
         }
         // printf("Plant in_angle: %.2f\n", plant.in_angle);
 
+
         influx = 1 * sin(M_PI / 2 * plant.in_angle / 100);
         plant.out_angle = outAngle(plant.passed_time_ms);
         outflux = (plant.max_flux / 100) * (plant.level / 1.25 + 0.2) * sin(M_PI / 2 * (plant.out_angle) / 100);
@@ -419,6 +429,7 @@ void *plantThreadFunction(void *arg)
 
         plant.passed_time_ms += dT_ms;
 
+        pthread_mutex_unlock(&plant_mutex);
         // printf("\npassed_time: %f\n", plant.passed_time_ms);
 
         clock_gettime(CLOCK_MONOTONIC_RAW, &end_time);
@@ -454,8 +465,8 @@ void *serverThreadFunction(void *arg)
 
     // Set port and IP:
     server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = inet_addr("0.0.0.0");
     server_addr.sin_port = htons(8000);
-    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     // Bind to the set port and IP:
     if (bind(socket_desc, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
@@ -578,7 +589,6 @@ void handleMessage(char *client_message, char *server_message)
     {
         if (checkCmdWithoutValue(client_message) == 0)
         {
-            printf("client_message: %s\n", client_message);
             strcpy(server_message, "Err!");
             return;
         }
@@ -592,7 +602,6 @@ void handleMessage(char *client_message, char *server_message)
     {
         if (checkCmdWithValue(client_message) == 0)
         {
-            printf("client_message: %s\n", client_message);
             strcpy(server_message, "Err!");
             return;
         }
@@ -600,15 +609,16 @@ void handleMessage(char *client_message, char *server_message)
         {
             cmd_pointer = strtok(client_message, "#"); // Gets the command related part of message
             strcpy(value_str, strtok(NULL, "!"));
-            received_msg.value = atoi(value_str); // Converts the received value (string) to integer
+            received_msg.value = atoi(value_str);
+            if (received_msg.value < 0 || received_msg.value > 100){
+                strcpy(server_message, "Err!");
+                return;
+            } // Converts the received value (string) to integer
             // Gets the value part of message
         }
     }
 
     strcpy(received_msg.command, cmd_pointer);
-
-    mq_send(message_queue, (char *)&received_msg, sizeof(received_msg), 0);
-    // printf("cmd1: %s\n", cmd);
 
     // Respond to client:
     if (strcmp(client_message, "CommTest") == 0)
@@ -618,38 +628,32 @@ void handleMessage(char *client_message, char *server_message)
     else if (strcmp(client_message, "Start") == 0)
     {
         strcpy(server_message, "Start#OK!");
-        // TODO (Re-)Iniciar o simulador da planta
     }
     else if (strcmp(client_message, "GetLevel") == 0)
     {
-        strcpy(server_message, "Level#");
-        // printf("\nPLANT LEVEL: %f, %d", plant.level, (int)(plant.level * 100));
-        sprintf(value_str, "%d", (int)round(plant.level * 100));
-        strcat(value_str, "!");
-        strcpy(server_message, strcat(server_message, value_str));
+        pthread_mutex_lock(&plant_mutex);
+        sprintf(server_message, "Level#%d!", (int)round(plant.level * 100));
+        pthread_mutex_unlock(&plant_mutex);
     }
-    else if (strcmp(client_message, "OpenValve") == 0)
+    else if (strcmp(client_message, "OpenValve") == 0 && received_msg.value != -1)
     {
-        strcpy(server_message, "Open#");
-        strcat(value_str, "!");
-        strcpy(server_message, strcat(server_message, value_str));
+        sprintf(server_message, "Open#%d!", received_msg.value);
     }
-    else if (strcmp(client_message, "CloseValve") == 0)
+    else if (strcmp(client_message, "CloseValve") == 0 && received_msg.value != -1)
     {
-        strcpy(server_message, "Close#");
-        strcat(value_str, "!");
-        strcpy(server_message, strcat(server_message, value_str));
+        sprintf(server_message, "Close#%d!", received_msg.value);
     }
-    else if (strcmp(client_message, "SetMax") == 0)
+    else if (strcmp(client_message, "SetMax") == 0 && received_msg.value != -1)
     {
-        strcpy(server_message, "Max#");
-        strcat(value_str, "!");
-        strcpy(server_message, strcat(server_message, value_str));
+        sprintf(server_message, "Max#%d!", received_msg.value);
     }
     else
     {
         strcpy(server_message, "Err!");
     }
+    
+
+    mq_send(message_queue, (char *)&received_msg, sizeof(received_msg), 0);
 }
 
 int receiveMsgFromClient(int socket_desc, char *client_message, struct sockaddr *client_addr)

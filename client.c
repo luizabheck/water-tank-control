@@ -9,7 +9,7 @@
 #include <time.h>
 #include <SDL/SDL.h>
 
-#define max(a,b) ((a) > (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
 
 // TODO usar o tamanho total, multiplicar pelos bytes
 #define BUFFER_SIZE 100
@@ -82,12 +82,17 @@ void d_setColors(dataholder_t *data, pixel_t level_color, pixel_t in_color, pixe
 void d_draw(dataholder_t *data, double time, double level, double in_angle, double out_angle);
 void quitevent();
 
-
-int main(void)
+int main(int argc, char *argv[])
 {
     pthread_t control_thread, plot_thread;
 
-    socketConfig();
+    if (argc != 3)
+    {
+        fprintf(stderr, "USAGE: %s <server_ip> <port> \n", argv[0]);
+        exit(1);
+    }
+
+    socketConfig(argv[1], atoi(argv[2]));
 
     pthread_create(&plot_thread, NULL, plotThreadFunction, NULL);
     pthread_create(&control_thread, NULL, controlThreadFunction, NULL);
@@ -266,8 +271,13 @@ int receiveMsgFromServer(int socket_desc, char *server_message, struct sockaddr 
     return 0;
 }
 
-int socketConfig()
+int socketConfig(char ip[15], int port)
 {
+    struct timeval timeout = {
+        .tv_sec = 0,
+        .tv_usec = 50 * 1000,
+    };
+
     // Create socket:
     socket_desc = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
@@ -280,8 +290,10 @@ int socketConfig()
 
     // Set port and IP:
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(8000);
-    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    server_addr.sin_addr.s_addr = inet_addr(ip);
+    server_addr.sin_port = htons(port);
+
+    setsockopt(socket_desc, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
     return 0;
 }
@@ -343,7 +355,7 @@ void *controlThreadFunction(void *arg)
         printf("SetMax failed!\n");
         return (void *)(-1);
     }
-    
+
     result = executeCommand("Start!", "Start");
     if (result == -1)
     {
@@ -363,7 +375,7 @@ void *plotThreadFunction(void *arg)
 
     while (1)
     {
-        d_draw(data, passed_time_ms/1000, level, valve_position, 0);
+        d_draw(data, passed_time_ms / 1000, level, valve_position, 0);
 
         quitevent();
         usleep(5000);
@@ -403,7 +415,7 @@ int control()
 
     float result = 0;
 
-    printf("Control started");
+    printf("Control started\n");
 
     while (1)
     {
@@ -423,7 +435,6 @@ int control()
         I = previous_I + ki * (error + previous_error) * dT_s;
 
         D = previous_D + kd * (error - previous_error) / dT_s;
-
 
         u = P + I + D;
 
@@ -466,7 +477,7 @@ int control()
                 {
                     sprintf(command, "CloseValve#%d!", -(int)round(delta_u));
                     result = executeCommand(command, "Close");
-                if (result == -1)
+                    if (result == -1)
                     {
                         printf("CloseValve failed!\n");
                         return -1;
@@ -478,7 +489,7 @@ int control()
                     delta_u = valve_position;
                     sprintf(command, "CloseValve#%d!", (int)round(delta_u));
                     result = executeCommand(command, "Close");
-                if (result == -1)
+                    if (result == -1)
                     {
                         printf("CloseValve failed!\n");
                         return -1;
@@ -495,13 +506,11 @@ int control()
 
             clock_gettime(CLOCK_MONOTONIC_RAW, &end_time);
 
-            elapsed_time_us = (end_time.tv_nsec - start_time_cycle.tv_nsec)/1000;
-            delta_time_us = ((dT_s * 1000000)-elapsed_time_us)/4;
+            elapsed_time_us = (end_time.tv_nsec - start_time_cycle.tv_nsec) / 1000;
+            delta_time_us = ((dT_s * 1000000) - elapsed_time_us) / 4;
         }
 
         passed_time_ms += dT_s * 1000;
-        usleep(max(delta_time_us,0));
+        usleep(max(delta_time_us, 0));
     }
-
-    
 }
