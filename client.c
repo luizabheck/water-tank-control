@@ -28,7 +28,7 @@ typedef Uint32 pixel_t;
 int socket_desc;
 struct sockaddr_in server_addr;
 float level = 0;
-long passed_time = 0;
+long passed_time_ms = 0;
 int valve_position = 50;
 
 // Graph////////////////////////////
@@ -81,8 +81,6 @@ dataholder_t *d_init(int width, int height, double x_max, double y_max, double c
 void d_setColors(dataholder_t *data, pixel_t level_color, pixel_t in_color, pixel_t out_color);
 void d_draw(dataholder_t *data, double time, double level, double in_angle, double out_angle);
 void quitevent();
-
-
 
 
 int main(void)
@@ -282,7 +280,7 @@ int socketConfig()
 
     // Set port and IP:
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(7000);
+    server_addr.sin_port = htons(8000);
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     return 0;
@@ -365,10 +363,10 @@ void *plotThreadFunction(void *arg)
 
     while (1)
     {
-        d_draw(data, passed_time/1000, level, valve_position, 0);
+        d_draw(data, passed_time_ms/1000, level, valve_position, 0);
 
         quitevent();
-        usleep(500);
+        usleep(5000);
     }
 }
 
@@ -395,13 +393,13 @@ int control()
     float delta_u = 0;
     float P = 0, I = 0, D = 0;
     float previous_D = 0, previous_I = 0;
-    float ki = 20, kp = 800, kd = 10;
+    float ki = 40, kp = 800, kd = 10;
     char command[BUFFER_SIZE];
     float ref = 0.8;
     float dT_s = 0.05;
     struct timespec start_time_cycle, end_time;
-    long elapsed_time = 0;
-    long variavel_do_danilo = 0;
+    long elapsed_time_us = 0;
+    long delta_time_us = 0;
 
     float result = 0;
 
@@ -496,15 +494,13 @@ int control()
             previous_D = D;
 
             clock_gettime(CLOCK_MONOTONIC_RAW, &end_time);
-            // printf("end time: %ld\n", end_time.tv_nsec);
-            elapsed_time = (end_time.tv_nsec - start_time_cycle.tv_nsec)/1000;
-            variavel_do_danilo = ((dT_s * 1000000)-elapsed_time)/4;
-            passed_time += dT_s * 1000;
 
-            // printf("passed time: %ld\n", passed_time);
-
-            usleep(max(variavel_do_danilo,0));
+            elapsed_time_us = (end_time.tv_nsec - start_time_cycle.tv_nsec)/1000;
+            delta_time_us = ((dT_s * 1000000)-elapsed_time_us)/4;
         }
+
+        passed_time_ms += dT_s * 1000;
+        usleep(max(delta_time_us,0));
     }
 
     

@@ -34,7 +34,7 @@ typedef struct
     double in_angle;  /*Input Valve angle*/
     double out_angle; /*Output Valve angle*/
     double level;     /*Current plant level*/
-    double passed_time;
+    double passed_time_ms;
 } plant_t;
 
 typedef struct
@@ -84,7 +84,7 @@ const plant_t initial_plant = {
     .in_angle = ANGLE_INITIAL,
     .out_angle = 0,
     .level = LEVEL_INITIAL,
-    .passed_time = 0,
+    .passed_time_ms = 0,
 };
 
 plant_t plant;
@@ -319,7 +319,7 @@ void *plotThreadFunction(void *arg)
 
     while (1)
     {
-        d_draw(data, plant.passed_time / 1000, plant.level * 100, plant.in_angle, plant.out_angle);
+        d_draw(data, plant.passed_time_ms / 1000, plant.level * 100, plant.in_angle, plant.out_angle);
 
         quitevent();
         usleep(5000);
@@ -336,8 +336,8 @@ void *plantThreadFunction(void *arg)
     float delta = 0, influx = 0, outflux = 0;
     int dT_ms = SIMULATION_PERIOD_MS;
     struct timespec start_time, end_time;
-    long elapsed_time = 0;
-    long variavel_do_danilo = 0;
+    long elapsed_time_us = 0;
+    long delta_time_us = 0;
     message_t received_msg;
 
     while (1)
@@ -413,20 +413,19 @@ void *plantThreadFunction(void *arg)
         // printf("Plant in_angle: %.2f\n", plant.in_angle);
 
         influx = 1 * sin(M_PI / 2 * plant.in_angle / 100);
-        plant.out_angle = outAngle(plant.passed_time);
+        plant.out_angle = outAngle(plant.passed_time_ms);
         outflux = (plant.max_flux / 100) * (plant.level / 1.25 + 0.2) * sin(M_PI / 2 * (plant.out_angle) / 100);
         plant.level = clamp(plant.level + 0.00002 * dT_ms * (influx - outflux), 0, 1);
 
-        plant.passed_time += dT_ms;
+        plant.passed_time_ms += dT_ms;
 
-        // printf("\npassed_time: %f\n", plant.passed_time);
+        // printf("\npassed_time: %f\n", plant.passed_time_ms);
 
         clock_gettime(CLOCK_MONOTONIC_RAW, &end_time);
-        elapsed_time = (end_time.tv_nsec - start_time.tv_nsec) / 1000;
-        variavel_do_danilo = ((dT_ms * 1000) - elapsed_time) / 4;
-        printf("plant level: %f\n", plant.level);
+        elapsed_time_us = (end_time.tv_nsec - start_time.tv_nsec) / 1000;
+        delta_time_us = ((dT_ms * 1000) - elapsed_time_us) / 4;
 
-        usleep(max(variavel_do_danilo, 0));
+        usleep(max(delta_time_us, 0));
     }
 }
 
@@ -455,7 +454,7 @@ void *serverThreadFunction(void *arg)
 
     // Set port and IP:
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(7000);
+    server_addr.sin_port = htons(8000);
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     // Bind to the set port and IP:
@@ -471,7 +470,8 @@ void *serverThreadFunction(void *arg)
     while (1)
     {
         receiveMsgFromClient(socket_desc, client_message, (struct sockaddr *)&client_addr);
-
+        
+        memset(server_message, 0, sizeof(server_message));
         handleMessage(client_message, server_message);
 
         sendMsgToClient(socket_desc, server_message, (struct sockaddr *)&client_addr);
@@ -481,23 +481,128 @@ void *serverThreadFunction(void *arg)
     close(socket_desc);
 }
 
+int isNumber(const char *pStr)
+{
+
+    if (NULL == pStr || *pStr == '\0')
+        return 0;
+
+    while (*pStr)
+    {
+        char c = *pStr;
+        if (c < '0' || c > '9')
+            return 0;
+        pStr++;
+    }
+
+    return 1;
+}
+
+int checkCmdWithoutValue(const char *pStr)
+{
+
+    int exclamation_count = 0;
+
+    if (pStr == NULL || *pStr == '\0')
+        return 0;
+
+    while (*pStr)
+    {
+        char c = *pStr;
+
+        if (c == '!')
+        {
+            exclamation_count++;
+            if (exclamation_count > 1)
+                return 0;
+        } 
+        else if (c < 'A' || c > 'z')
+        {
+            return 0;
+        } 
+        pStr++;
+    }
+    return 1;
+}
+
+int checkCmdWithValue(const char *pStr)
+{
+
+    int exclamation_count = 0;
+    int hashtag_count = 0;
+
+    if (pStr == NULL || *pStr == '\0')
+        return 0;
+
+    while (*pStr)
+    {
+        char c = *pStr;
+
+        if (c == '!')
+        {
+            exclamation_count++;
+            if (exclamation_count > 1)
+                return 0;
+        }
+        else if (c == '#')
+        {
+            hashtag_count++;
+            if (hashtag_count > 1)
+                return 0;
+        }
+        else if (hashtag_count == 1)
+        {
+            if (c < '0' || c > '9')
+            {
+                return 0;
+            }
+        }
+        else if ((c < 'A' || c > 'z'))
+        {
+            return 0;
+        }
+        pStr++;
+    }
+    return 1;
+}
+
 void handleMessage(char *client_message, char *server_message)
 {
     char value_str[10];
     char *cmd_pointer;
     message_t received_msg;
+    int error = 0;
     // char client_message[BUFFER_SIZE];
 
     if (strstr(client_message, "#") == NULL) // Checks if has not received any argument
     {
-        cmd_pointer = strtok(client_message, "!"); // Breaks the string to eliminate the '!'
-        received_msg.value = -1;
+        if (checkCmdWithoutValue(client_message) == 0)
+        {
+            printf("client_message: %s\n", client_message);
+            strcpy(server_message, "Err!");
+            return;
+        }
+        else
+        {
+            cmd_pointer = strtok(client_message, "!"); // Breaks the string to eliminate the '!'
+            received_msg.value = -1;
+        }
     }
     else // If has arguments
     {
-        cmd_pointer = strtok(client_message, "#"); // Gets the command related part of message
-        strcpy(value_str, strtok(NULL, "!"));      // Gets the value part of message
-        received_msg.value = atoi(value_str);      // Converts the received value (string) to integer
+        if (checkCmdWithValue(client_message) == 0)
+        {
+            printf("client_message: %s\n", client_message);
+            strcpy(server_message, "Err!");
+            return;
+        }
+        else
+        {
+            cmd_pointer = strtok(client_message, "#"); // Gets the command related part of message
+            strcpy(value_str, strtok(NULL, "!"));
+            received_msg.value = atoi(value_str); // Converts the received value (string) to integer
+            // Gets the value part of message
+        }
     }
 
     strcpy(received_msg.command, cmd_pointer);
