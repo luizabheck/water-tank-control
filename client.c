@@ -9,35 +9,32 @@
 #include <time.h>
 #include <SDL/SDL.h>
 
+// Macro ///////////////////////////////////
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
-// TODO usar o tamanho total, multiplicar pelos bytes
+// Constants ///////////////////////////////
 #define BUFFER_SIZE 100
 #define KI 40
 #define KD 10
-#define KP 800
+#define KP 900
 #define REFERENCE 0.8
 #define dT_MS 0.05
 
-
-// Graph
-#define SCREEN_W 640 // tamanho da janela que sera criada
-#define SCREEN_H 640
-//#define BPP 8
-// typedef Uint8 pixel_t;
-//#define BPP 16
-// typedef Uint16 pixel_t;
+// Plot ///////////////////////////////////
+#define SCREEN_W 640 
+#define SCREEN_H 480
 #define BPP 32
 typedef Uint32 pixel_t;
+////////////////////////////////////////////
 
-// Global variables
+// Global variables ///////////////////////
 int socket_desc;
 struct sockaddr_in server_addr;
 float level = 0;
 long passed_time_ms = 0;
 int valve_position = 50;
 
-// Graph////////////////////////////
+// Plot functions /////////////////////////
 typedef struct
 {
     SDL_Surface *canvas;
@@ -67,8 +64,9 @@ typedef struct
     pixel_t out_color;
 
 } dataholder_t;
-//////////////////////////////////////
+//////////////////////////////////////////
 
+// Functions declaration //////////////////
 int receiveMsgFromServer(int socket_desc, char *server_message, struct sockaddr *server_addr);
 int sendMsgToServer(int socket_desc, char *client_message, struct sockaddr *server_addr);
 void *controlThreadFunction(void *arg);
@@ -78,6 +76,7 @@ int control();
 float clamp(float value, float min, float max);
 void *plotThreadFunction(void *arg);
 
+// Plot functions /////////////////////////
 void c_hlinedraw(canvas_t *canvas, int x_step, int y, pixel_t color);
 void c_pixeldraw(canvas_t *canvas, int x, int y, pixel_t color);
 void c_vlinedraw(canvas_t *canvas, int x, int y_step, pixel_t color);
@@ -87,6 +86,7 @@ dataholder_t *d_init(int width, int height, double x_max, double y_max, double c
 void d_setColors(dataholder_t *data, pixel_t level_color, pixel_t in_color, pixel_t out_color);
 void d_draw(dataholder_t *data, double time, double level, double in_angle, double out_angle);
 void quitevent();
+//////////////////////////////////////////
 
 int main(int argc, char *argv[])
 {
@@ -112,7 +112,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-// Graph////////////////////////////////////////////
+// Plot functions /////////////////////////
 
 inline void c_pixeldraw(canvas_t *canvas, int x, int y, pixel_t color)
 {
@@ -246,6 +246,7 @@ void quitevent()
 
 //////////////////////////////////////////
 
+// Sends message to server, -1 if error
 int sendMsgToServer(int socket_desc, char *client_message, struct sockaddr *server_addr)
 {
     int server_struct_length = sizeof(*server_addr);
@@ -256,9 +257,11 @@ int sendMsgToServer(int socket_desc, char *client_message, struct sockaddr *serv
         printf("Unable to send message\n");
         return -1;
     }
+    // printf("Sending: %s\n", client_message);
     return 0;
 }
 
+// Receives message from server, -1 if error
 int receiveMsgFromServer(int socket_desc, char *server_message, struct sockaddr *server_addr)
 {
     // sizeof(*server_addr) quero o tamanho do que o ponteiro esta apontando
@@ -270,13 +273,14 @@ int receiveMsgFromServer(int socket_desc, char *server_message, struct sockaddr 
     if (recvfrom(socket_desc, server_message, BUFFER_SIZE, 0,
                  server_addr, &server_struct_length) < 0)
     {
-        printf("Error while receiving server's msg\n");
+        // printf("Error while receiving server's msg\n");
         return -1;
     }
     // printf("Server's response: %s\n", server_message);
     return 0;
 }
 
+// Sets socket configs and timeout, -1 if error
 int socketConfig(char ip[15], int port)
 {
     struct timeval timeout = {
@@ -304,13 +308,14 @@ int socketConfig(char ip[15], int port)
     return 0;
 }
 
+// Executes a command and returns the received value (if it has any), 0 if it has no values and -1 if error
 float executeCommand(char *command, char *expected_response)
 {
-
     char server_message[BUFFER_SIZE], client_message[BUFFER_SIZE];
     char value_str[BUFFER_SIZE];
     char *response_cmd;
     float value = 0;
+    int response = 0;
 
     // Clean buffers:
     memset(server_message, 0, sizeof(server_message));
@@ -322,7 +327,12 @@ float executeCommand(char *command, char *expected_response)
     sendMsgToServer(socket_desc, client_message, (struct sockaddr *)&server_addr);
 
     // Wait for server response:
-    receiveMsgFromServer(socket_desc, server_message, (struct sockaddr *)&server_addr);
+    response = receiveMsgFromServer(socket_desc, server_message, (struct sockaddr *)&server_addr);
+
+    if (response == -1)
+    {
+        return -1;
+    }
 
     if (strstr(server_message, "#") == NULL) // Checks if has not received any argument
     {
@@ -343,36 +353,58 @@ float executeCommand(char *command, char *expected_response)
     return value;
 }
 
+// Sends initial commands and start the control
 void *controlThreadFunction(void *arg)
 {
     float result = 0;
+    int socket_flag = 0;
 
     // Initial commands
-    result = executeCommand("CommTest!", "Comm");
-    if (result == -1)
+
+    while (socket_flag == 0)
     {
-        printf("CommTest failed!\n");
-        return (void *)(-1);
+        result = executeCommand("CommTest!", "Comm");
+        if (result == -1)
+        {
+            printf("CommTest failed! Trying again...\n");
+        }
+        else
+        {
+            socket_flag = 1;
+        }
     }
 
-    result = executeCommand("SetMax#100!", "Max");
-    if (result == -1)
+    while (socket_flag == 1)
     {
-        printf("SetMax failed!\n");
-        return (void *)(-1);
+        result = executeCommand("Start!", "Start");
+        if (result == -1)
+        {
+            printf("Start failed! Trying again...\n");
+        }
+        else
+        {
+            socket_flag = 2;
+        }
     }
 
-    result = executeCommand("Start!", "Start");
-    if (result == -1)
+    while (socket_flag == 2)
     {
-        printf("Start failed!\n");
-        return (void *)(-1);
+        result = executeCommand("SetMax#100!", "Max");
+        if (result == -1)
+        {
+            printf("SetMax failed! Trying again...\n");
+        }
+        else
+        {
+            socket_flag = 0;
+        }
     }
 
     // Valve Control
     control();
 }
 
+// Controls the graph
 void *plotThreadFunction(void *arg)
 {
     dataholder_t *data;
@@ -388,6 +420,7 @@ void *plotThreadFunction(void *arg)
     }
 }
 
+// Saturation
 float clamp(float value, float min, float max)
 {
     if (value >= max)
@@ -402,9 +435,9 @@ float clamp(float value, float min, float max)
     return value;
 }
 
+// Controls the opening and closing of the valve
 int control()
 {
-
     float error = 0, previous_error = 0;
     float u = 0, delta_u = 0;
     float P = 0, I = 0, D = 0;
@@ -416,6 +449,7 @@ int control()
     struct timespec start_time, end_time;
     long elapsed_time_us = 0, delta_time_us = 0;
     float result = 0;
+    int socket_flag = 0;
 
     printf("Control started\n");
 
@@ -423,13 +457,23 @@ int control()
     {
         clock_gettime(CLOCK_MONOTONIC_RAW, &start_time);
 
-        level = executeCommand("GetLevel!", "Level");
-        if (level == -1)
+        // Sends the command Get Level until it gets the right response
+        while (socket_flag == 0)
         {
-            printf("GetLevel failed!\n");
-            return -1;
+            level = executeCommand("GetLevel!", "Level");
+            if (level == -1)
+            {
+                printf("GetLevel failed! Trying again...\n");
+            }
+            else
+            {
+                socket_flag = 1;
+            }
         }
 
+        socket_flag = 0;
+
+        // Controller
         error = ref - (level / 100.0);
 
         P = kp * error;
@@ -441,62 +485,96 @@ int control()
         u = P + I + D;
 
         // Control saturation
-        u = clamp(u, -95, 95);
+        u = clamp(u, 5, 95);
 
+        // Calculates how much the valve should open/close
         delta_u = u - valve_position;
+
+        // Open/Close saturation
+        delta_u = clamp(delta_u, -2, 2);
 
         if (delta_u != 0)
         {
             if (delta_u > 0)
             {
+                // Valve position can't be bigger than 100
                 if ((valve_position + (int)delta_u) < 100)
                 {
                     sprintf(command, "OpenValve#%d!", (int)round(delta_u));
-                    result = executeCommand(command, "Open");
-                    if (result == -1)
+                    while (socket_flag == 0)
                     {
-                        printf("OpenValve failed!\n");
-                        return -1;
+                        result = executeCommand(command, "Open");
+                        if (result == -1)
+                        {
+                            printf("OpenValve failed! Trying again...\n");
+                        }
+                        else
+                        {
+                            socket_flag = 1;
+                        }
                     }
                     valve_position = valve_position + (int)round(delta_u);
+                    socket_flag = 0;
                 }
                 else if (valve_position != 100)
                 {
                     delta_u = 100 - valve_position;
                     sprintf(command, "OpenValve#%d!", (int)round(delta_u));
-                    result = executeCommand(command, "Open");
-                    if (result == -1)
+                    while (socket_flag == 0)
                     {
-                        printf("OpenValve failed!\n");
-                        return -1;
+                        result = executeCommand(command, "Open");
+                        if (result == -1)
+                        {
+                            printf("OpenValve failed! Trying again...\n");
+                        }
+                        else
+                        {
+                            socket_flag = 1;
+                        }
                     }
                     valve_position = 100;
+                    socket_flag = 0;
                 }
             }
             else if (delta_u < 0)
             {
+                // Valve position can't be smaller than 0
                 if ((valve_position + (int)delta_u) > 0)
                 {
                     sprintf(command, "CloseValve#%d!", -(int)round(delta_u));
-                    result = executeCommand(command, "Close");
-                    if (result == -1)
+                    while (socket_flag == 0)
                     {
-                        printf("CloseValve failed!\n");
-                        return -1;
+                        result = executeCommand(command, "Close");
+                        if (result == -1)
+                        {
+                            printf("CloseValve failed! Trying again...\n");
+                        }
+                        else
+                        {
+                            socket_flag = 1;
+                        }
                     }
                     valve_position = valve_position + (int)round(delta_u);
+                    socket_flag = 0;
                 }
                 else if (valve_position != 0)
                 {
                     delta_u = valve_position;
                     sprintf(command, "CloseValve#%d!", (int)round(delta_u));
-                    result = executeCommand(command, "Close");
-                    if (result == -1)
+                    while (socket_flag == 0)
                     {
-                        printf("CloseValve failed!\n");
-                        return -1;
+                        result = executeCommand(command, "Close");
+                        if (result == -1)
+                        {
+                            printf("CloseValve failed! Trying again...\n");
+                        }
+                        else
+                        {
+                            socket_flag = 1;
+                        }
                     }
                     valve_position = 0;
+                    socket_flag = 0;
                 }
             }
 
@@ -508,6 +586,7 @@ int control()
 
             clock_gettime(CLOCK_MONOTONIC_RAW, &end_time);
 
+            // Makes sure that the elapsed time won't be added to the frequency of the thread
             elapsed_time_us = (end_time.tv_nsec - start_time.tv_nsec) / 1000;
             delta_time_us = ((dT_s * 1000000) - elapsed_time_us);
         }

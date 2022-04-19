@@ -10,40 +10,24 @@
 #include <time.h>
 #include <mqueue.h>
 
+// Macro ///////////////////////////////////
+#define max(a, b) ((a) > (b) ? (a) : (b))
+
+// Constants ///////////////////////////////
 #define BUFFER_SIZE 100
 #define MAX_FLUX_INITIAL 100
 #define ANGLE_INITIAL 50
 #define LEVEL_INITIAL 0.4
 #define SIMULATION_PERIOD_MS 10
 
-#define max(a, b) ((a) > (b) ? (a) : (b))
-
-// Graph
-#define SCREEN_W 640 // tamanho da janela que sera criada
+// Plot ////////////////////////////////////
+#define SCREEN_W 640
 #define SCREEN_H 640
-//#define BPP 8
-// typedef Uint8 pixel_t;
-//#define BPP 16
-// typedef Uint16 pixel_t;
 #define BPP 32
 typedef Uint32 pixel_t;
+////////////////////////////////////////////
 
-typedef struct
-{                     /*Struct to store values concerning to the plant being simulated*/
-    double max_flux;  /*Max out flux; Can be changed via SetMax command*/
-    double in_angle;  /*Input Valve angle*/
-    double out_angle; /*Output Valve angle*/
-    double level;     /*Current plant level*/
-    double passed_time_ms;
-} plant_t;
-
-typedef struct
-{
-    char command[BUFFER_SIZE];
-    int value;
-} message_t;
-
-// Graph////////////////////////////
+/// Plot structs ///////////////////////////
 typedef struct
 {
     SDL_Surface *canvas;
@@ -73,11 +57,29 @@ typedef struct
     pixel_t out_color;
 
 } dataholder_t;
-//////////////////////////////////////
+////////////////////////////////////////////
 
-// Global variables
+typedef struct
+{                     /*Struct to store values concerning to the plant being simulated*/
+    double max_flux;  /*Max out flux; Can be changed via SetMax command*/
+    double in_angle;  /*Input Valve angle*/
+    double out_angle; /*Output Valve angle*/
+    double level;     /*Current plant level*/
+    double passed_time_ms;
+} plant_t;
+
+typedef struct
+{
+    char command[BUFFER_SIZE];
+    int value;
+} message_t;
+
+// Global variables ////////////////////////
 int socket_desc;
 mqd_t message_queue;
+pthread_mutex_t plant_mutex;
+plant_t plant;
+int port;
 
 const plant_t initial_plant = {
     .max_flux = MAX_FLUX_INITIAL,
@@ -87,10 +89,7 @@ const plant_t initial_plant = {
     .passed_time_ms = 0,
 };
 
-pthread_mutex_t plant_mutex;
-
-plant_t plant;
-
+// Functions declaration //////////////////
 int sendMsgToClient(int socket_desc, char *server_message, struct sockaddr *client_addr);
 int receiveMsgFromClient(int socket_desc, char *client_message, struct sockaddr *client_addr);
 void handleMessage(char *client_message, char *server_message);
@@ -101,6 +100,7 @@ float clamp(float value, float max, float min);
 double outAngle(double time);
 void resetPlant();
 
+// Plot functions /////////////////////////
 void c_hlinedraw(canvas_t *canvas, int x_step, int y, pixel_t color);
 void c_pixeldraw(canvas_t *canvas, int x, int y, pixel_t color);
 void c_vlinedraw(canvas_t *canvas, int x, int y_step, pixel_t color);
@@ -110,10 +110,19 @@ dataholder_t *d_init(int width, int height, double x_max, double y_max, double c
 void d_setColors(dataholder_t *data, pixel_t level_color, pixel_t in_color, pixel_t out_color);
 void d_draw(dataholder_t *data, double time, double level, double in_angle, double out_angle);
 void quitevent();
+//////////////////////////////////////////
 
-int main(void)
+int main(int argc, char *argv[])
 {
     pthread_t server_thread, plant_thread, plot_thread;
+
+    if (argc != 2)
+    {
+        fprintf(stderr, "USAGE: %s <port> \n", argv[0]);
+        exit(1);
+    }
+
+    port = atoi(argv[1]);
 
     struct mq_attr attr = {
         .mq_msgsize = sizeof(message_t),
@@ -121,7 +130,8 @@ int main(void)
         .mq_flags = 0,
     };
 
-    if (pthread_mutex_init(&plant_mutex, NULL) != 0){
+    if (pthread_mutex_init(&plant_mutex, NULL) != 0)
+    {
         printf("Mutex initialization failed\n");
         return 1;
     }
@@ -140,7 +150,7 @@ int main(void)
     return 0;
 }
 
-// Graph////////////////////////////////////////////
+// Plot functions /////////////////////////
 
 inline void c_pixeldraw(canvas_t *canvas, int x, int y, pixel_t color)
 {
@@ -275,6 +285,7 @@ void quitevent()
 
 //////////////////////////////////////////
 
+// Saturation
 float clamp(float value, float min, float max)
 {
     if (value >= max)
@@ -289,6 +300,23 @@ float clamp(float value, float min, float max)
     return value;
 }
 
+// Controls the graph
+void *plotThreadFunction(void *arg)
+{
+    dataholder_t *data;
+
+    data = d_init(640, 480, 200, 110, plant.level * 100, plant.in_angle, plant.out_angle);
+
+    while (1)
+    {
+        d_draw(data, plant.passed_time_ms / 1000, plant.level * 100, plant.in_angle, plant.out_angle);
+
+        quitevent();
+        usleep(50000);
+    }
+}
+
+// Calculates the out angle
 double outAngle(double time)
 {
     if (time <= 0)
@@ -318,26 +346,15 @@ double outAngle(double time)
     return 100;
 }
 
-void *plotThreadFunction(void *arg)
-{
-    dataholder_t *data;
-
-    data = d_init(640, 480, 200, 110, plant.level * 100, plant.in_angle, plant.out_angle);
-
-    while (1)
-    {
-        d_draw(data, plant.passed_time_ms / 1000, plant.level * 100, plant.in_angle, plant.out_angle);
-
-        quitevent();
-        usleep(50000);
-    }
-}
-
+// Returns the plant variables to  their initial values
 void resetPlant()
 {
+    pthread_mutex_lock(&plant_mutex);
     memcpy(&plant, &initial_plant, sizeof(initial_plant));
+    pthread_mutex_unlock(&plant_mutex);
 }
 
+// Plant simulation
 void *plantThreadFunction(void *arg)
 {
     float delta = 0, influx = 0, outflux = 0;
@@ -421,14 +438,12 @@ void *plantThreadFunction(void *arg)
         }
         // printf("Plant in_angle: %.2f\n", plant.in_angle);
 
-
         influx = 1 * sin(M_PI / 2 * plant.in_angle / 100);
         plant.out_angle = outAngle(plant.passed_time_ms);
         outflux = (plant.max_flux / 100) * (plant.level / 1.25 + 0.2) * sin(M_PI / 2 * (plant.out_angle) / 100);
         plant.level = clamp(plant.level + 0.00002 * dT_ms * (influx - outflux), 0, 1);
 
         plant.passed_time_ms += dT_ms;
-
 
         pthread_mutex_unlock(&plant_mutex);
         // printf("\npassed_time: %f\n", plant.passed_time_ms);
@@ -441,6 +456,7 @@ void *plantThreadFunction(void *arg)
     }
 }
 
+// Sets socket configs, waits for message and sends message back
 void *serverThreadFunction(void *arg)
 {
     struct sockaddr_in server_addr, client_addr;
@@ -467,7 +483,7 @@ void *serverThreadFunction(void *arg)
     // Set port and IP:
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = inet_addr("0.0.0.0");
-    server_addr.sin_port = htons(8000);
+    server_addr.sin_port = htons(port);
 
     // Bind to the set port and IP:
     if (bind(socket_desc, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
@@ -482,7 +498,7 @@ void *serverThreadFunction(void *arg)
     while (1)
     {
         receiveMsgFromClient(socket_desc, client_message, (struct sockaddr *)&client_addr);
-        
+
         memset(server_message, 0, sizeof(server_message));
         handleMessage(client_message, server_message);
 
@@ -493,23 +509,7 @@ void *serverThreadFunction(void *arg)
     close(socket_desc);
 }
 
-int isNumber(const char *pStr)
-{
-
-    if (NULL == pStr || *pStr == '\0')
-        return 0;
-
-    while (*pStr)
-    {
-        char c = *pStr;
-        if (c < '0' || c > '9')
-            return 0;
-        pStr++;
-    }
-
-    return 1;
-}
-
+// Checks if the messages without values are valid
 int checkCmdWithoutValue(const char *pStr)
 {
 
@@ -527,16 +527,17 @@ int checkCmdWithoutValue(const char *pStr)
             exclamation_count++;
             if (exclamation_count > 1)
                 return 0;
-        } 
+        }
         else if (c < 'A' || c > 'z')
         {
             return 0;
-        } 
+        }
         pStr++;
     }
     return 1;
 }
 
+// Check if the messages with values are valid
 int checkCmdWithValue(const char *pStr)
 {
 
@@ -578,6 +579,7 @@ int checkCmdWithValue(const char *pStr)
     return 1;
 }
 
+// Handles received message
 void handleMessage(char *client_message, char *server_message)
 {
     char value_str[10];
@@ -611,7 +613,8 @@ void handleMessage(char *client_message, char *server_message)
             cmd_pointer = strtok(client_message, "#"); // Gets the command related part of message
             strcpy(value_str, strtok(NULL, "!"));
             received_msg.value = atoi(value_str);
-            if (received_msg.value < 0 || received_msg.value > 100){
+            if (received_msg.value < 0 || received_msg.value > 100)
+            {
                 strcpy(server_message, "Err!");
                 return;
             } // Converts the received value (string) to integer
@@ -652,11 +655,11 @@ void handleMessage(char *client_message, char *server_message)
     {
         strcpy(server_message, "Err!");
     }
-    
 
     mq_send(message_queue, (char *)&received_msg, sizeof(received_msg), 0);
 }
 
+// Receives message from client, -1 if error
 int receiveMsgFromClient(int socket_desc, char *client_message, struct sockaddr *client_addr)
 {
     // sizeof(*server_addr) quero o tamanho do que o ponteiro esta apontando
@@ -685,6 +688,7 @@ int receiveMsgFromClient(int socket_desc, char *client_message, struct sockaddr 
     return 0;
 }
 
+// Sends message to client, -1 if error
 int sendMsgToClient(int socket_desc, char *server_message, struct sockaddr *client_addr)
 {
     int client_struct_length = sizeof(*client_addr);
@@ -695,5 +699,6 @@ int sendMsgToClient(int socket_desc, char *server_message, struct sockaddr *clie
         printf("Unable to send message\n");
         return -1;
     }
+    // printf("Sending: %s\n", server_message);
     return 0;
 }
