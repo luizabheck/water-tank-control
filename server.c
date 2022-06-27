@@ -80,6 +80,7 @@ mqd_t message_queue;
 pthread_mutex_t plant_mutex;
 plant_t plant;
 int port;
+int error_test = 0;
 
 const plant_t initial_plant = {
     .max_flux = MAX_FLUX_INITIAL,
@@ -443,6 +444,9 @@ void *plantThreadFunction(void *arg)
         outflux = (plant.max_flux / 100) * (plant.level / 1.25 + 0.2) * sin(M_PI / 2 * (plant.out_angle) / 100);
         plant.level = clamp(plant.level + 0.00002 * dT_ms * (influx - outflux), 0, 1);
 
+        // printf("Level: %lf\n", plant.level);
+        // printf("In angle: %lf\n\n", plant.in_angle);
+
         plant.passed_time_ms += dT_ms;
 
         pthread_mutex_unlock(&plant_mutex);
@@ -501,7 +505,7 @@ void *serverThreadFunction(void *arg)
 
         memset(server_message, 0, sizeof(server_message));
         handleMessage(client_message, server_message);
-
+        
         sendMsgToClient(socket_desc, server_message, (struct sockaddr *)&client_addr);
     }
 
@@ -656,7 +660,10 @@ void handleMessage(char *client_message, char *server_message)
         strcpy(server_message, "Err!");
     }
 
-    mq_send(message_queue, (char *)&received_msg, sizeof(received_msg), 0);
+    //if (error_test == 0)
+    //{
+        mq_send(message_queue, (char *)&received_msg, sizeof(received_msg), 0);
+    //}
 }
 
 // Receives message from client, -1 if error
@@ -677,14 +684,16 @@ int receiveMsgFromClient(int socket_desc, char *client_message, struct sockaddr 
     if (recvfrom(socket_desc, client_message, BUFFER_SIZE, 0,
                  client_addr, &client_struct_length) < 0)
     {
-        printf("Couldn't receive\n");
+        //perror("Error while receiving client's msg");
+        //error_test = 1;
         return -1;
     }
 
     // printf("Received message from IP: %s and port: %i\n",
     //        inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
-    // printf("Msg from client: %s\n", client_message);
+    //printf("Msg from client: %s\n", client_message);
+    //error_test = 0;
     return 0;
 }
 
@@ -696,9 +705,11 @@ int sendMsgToClient(int socket_desc, char *server_message, struct sockaddr *clie
     if (sendto(socket_desc, server_message, strlen(server_message), 0,
                client_addr, client_struct_length) < 0)
     {
-        printf("Unable to send message\n");
+        //perror("Error while sending msg");
+        //error_test = 1;
         return -1;
     }
-    // printf("Sending: %s\n", server_message);
+    //printf("Sending: %s\n\n", server_message);
+    //error_test = 0;
     return 0;
 }

@@ -254,10 +254,10 @@ int sendMsgToServer(int socket_desc, char *client_message, struct sockaddr *serv
     if (sendto(socket_desc, client_message, strlen(client_message), 0,
                server_addr, server_struct_length) < 0)
     {
-        printf("Unable to send message\n");
+        //perror("Error while sending msg");
         return -1;
     }
-    // printf("Sending: %s\n", client_message);
+    //printf("Sending: %s\n", client_message);
     return 0;
 }
 
@@ -273,10 +273,10 @@ int receiveMsgFromServer(int socket_desc, char *server_message, struct sockaddr 
     if (recvfrom(socket_desc, server_message, BUFFER_SIZE, 0,
                  server_addr, &server_struct_length) < 0)
     {
-        // printf("Error while receiving server's msg\n");
+        //perror("Error while receiving server's msg");
         return -1;
     }
-    // printf("Server's response: %s\n", server_message);
+    //printf("Server's response: %s\n\n", server_message);
     return 0;
 }
 
@@ -285,7 +285,7 @@ int socketConfig(char ip[15], int port)
 {
     struct timeval timeout = {
         .tv_sec = 0,
-        .tv_usec = 50 * 1000,
+        .tv_usec = 800000,
     };
 
     // Create socket:
@@ -324,10 +324,12 @@ float executeCommand(char *command, char *expected_response)
     strcpy(client_message, command);
 
     // Send the message to server:
-    sendMsgToServer(socket_desc, client_message, (struct sockaddr *)&server_addr);
+    response = sendMsgToServer(socket_desc, client_message, (struct sockaddr *)&server_addr);
 
     // Wait for server response:
     response = receiveMsgFromServer(socket_desc, server_message, (struct sockaddr *)&server_addr);
+
+    //printf("response receive: %d\n", response);
 
     if (response == -1)
     {
@@ -471,6 +473,8 @@ int control()
             }
         }
 
+        // printf("Level: %f\n", level);
+
         socket_flag = 0;
 
         // Controller
@@ -492,6 +496,8 @@ int control()
 
         // Open/Close saturation
         delta_u = clamp(delta_u, -2, 2);
+
+        // printf("delta_u: %f\n", delta_u);
 
         if (delta_u != 0)
         {
@@ -590,6 +596,8 @@ int control()
             elapsed_time_us = (end_time.tv_nsec - start_time.tv_nsec) / 1000;
             delta_time_us = ((dT_s * 1000000) - elapsed_time_us);
         }
+
+        // printf("Valve position: %d\n\n", valve_position);
 
         passed_time_ms += dT_s * 1000;
         usleep(max(delta_time_us, 0));
